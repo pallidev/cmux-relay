@@ -1,0 +1,22 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+
+# IDE / AI tool configs
+.claude/
+.agents/
+.continue/
+.junie/
+.windsurf/
+
+# Skills CLI
+skills/
+skills-lock.json
+
+# Test artifacts
+test-results/
+toast-screenshot.png
+
+# Handoff docs
+HANDOFF.md

@@ -9,8 +9,8 @@ interface JsonRpcRequest {
 }
 
 interface JsonRpcResponse {
-  id: string;
-  ok: boolean;
+  id?: string;
+  ok?: boolean;
   result?: unknown;
   error?: { code: string; message: string };
 }
@@ -28,6 +28,8 @@ export interface CmuxSurface {
   workspace_id: string;
 }
 
+export type CmuxConnectionState = 'disconnected' | 'connecting' | 'connected';
+
 export class CmuxClient {
   private socketPath: string;
   private pending = new Map<string, {
@@ -36,35 +38,57 @@ export class CmuxClient {
   }>();
   private buffer = '';
   private sock: ReturnType<typeof createNetConnection> | null = null;
+  private _state: CmuxConnectionState = 'disconnected';
+  private onDisconnected?: () => void;
 
   constructor(socketPath?: string) {
     this.socketPath = socketPath || process.env.CMUX_SOCKET_PATH ||
       `${process.env.HOME}/Library/Application Support/cmux/cmux.sock`;
   }
 
-  connect(): Promise<void> {
+  get state(): CmuxConnectionState {
+    return this._state;
+  }
+
+  connect(onDisconnected?: () => void): Promise<void> {
+    if (this._state === 'connecting' || this._state === 'connected') {
+      return Promise.resolve();
+    }
+    this.onDisconnected = onDisconnected;
+
     return new Promise((resolve, reject) => {
+      this._state = 'connecting';
       const sock = createNetConnection(this.socketPath);
       let settled = false;
       sock.on('connect', () => {
         console.log(`Connected to cmux socket: ${this.socketPath}`);
+        this._state = 'connected';
         settled = true;
         resolve();
       });
       sock.on('error', (err) => {
         console.error(`cmux socket error: ${err.message}`);
+        this._state = 'disconnected';
         if (!settled) {
           settled = true;
           reject(new Error(`Cannot connect to cmux socket at ${this.socketPath}: ${err.message}`));
         }
       });
       sock.on('close', () => {
-        console.log(`cmux socket closed`);
+        console.log('cmux socket closed');
+        // Only reset state if this is still the active socket
+        if (this.sock !== sock) return;
+        const wasConnected = this._state === 'connected';
+        this._state = 'disconnected';
         this.sock = null;
         // Reject all pending requests
-        for (const [id, pending] of this.pending) {
-          this.pending.delete(id);
+        const entries = [...this.pending.values()];
+        this.pending.clear();
+        for (const pending of entries) {
           pending.reject(new Error('cmux socket closed'));
+        }
+        if (wasConnected && this.onDisconnected) {
+          this.onDisconnected();
         }
       });
       sock.on('data', (chunk) => this.handleData(chunk.toString('utf-8')));
@@ -74,7 +98,7 @@ export class CmuxClient {
   }
 
   isConnected(): boolean {
-    return this.sock !== null && !this.sock.destroyed;
+    return this._state === 'connected' && this.sock !== null && !this.sock.destroyed;
   }
 
   private handleData(data: string): void {
@@ -86,15 +110,18 @@ export class CmuxClient {
       if (!line.trim()) continue;
       try {
         const resp = JSON.parse(line) as JsonRpcResponse;
-        const pending = this.pending.get(resp.id);
-        if (pending) {
-          this.pending.delete(resp.id);
-          if (resp.ok) {
-            pending.resolve(resp.result);
-          } else {
-            pending.reject(new Error(resp.error?.message || 'Unknown error'));
+        if (resp.id) {
+          const pending = this.pending.get(resp.id);
+          if (pending) {
+            this.pending.delete(resp.id);
+            if (resp.ok) {
+              pending.resolve(resp.result);
+            } else {
+              pending.reject(new Error(resp.error?.message || 'Unknown error'));
+            }
           }
         }
+        // Ignore notifications (responses without id)
       } catch {
         // ignore malformed lines
       }
@@ -103,7 +130,7 @@ export class CmuxClient {
 
   private send(method: string, params?: Record<string, unknown>): Promise<unknown> {
     return new Promise((resolve, reject) => {
-      if (!this.sock || this.sock.destroyed) {
+      if (!this.sock || this.sock.destroyed || this._state !== 'connected') {
         reject(new Error('Not connected to cmux'));
         return;
       }
@@ -111,7 +138,12 @@ export class CmuxClient {
       const id = randomUUID();
       const req: JsonRpcRequest = { id, method, params: params || {} };
       this.pending.set(id, { resolve, reject });
-      this.sock.write(JSON.stringify(req) + '\n');
+      try {
+        this.sock.write(JSON.stringify(req) + '\n');
+      } catch (err) {
+        this.pending.delete(id);
+        reject(new Error(`Failed to write to cmux socket: ${err}`));
+      }
     });
   }
 
@@ -214,6 +246,7 @@ export class CmuxClient {
   }
 
   disconnect(): void {
+    this._state = 'disconnected';
     if (this.sock) {
       this.sock.destroy();
       this.sock = null;

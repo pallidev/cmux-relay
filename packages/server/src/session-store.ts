@@ -91,6 +91,13 @@ export class SessionStore {
     this.clients.set(clientId, { ws, activeSurfaceId: null, activeWorkspaceId: null, authenticated: false });
   }
 
+  disconnectAllClients(): void {
+    for (const [id, client] of this.clients) {
+      client.ws.close(4002, 'Replaced by new connection');
+      this.clients.delete(id);
+    }
+  }
+
   unregisterClient(clientId: string): void {
     this.clients.delete(clientId);
   }

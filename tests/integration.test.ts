@@ -1,21 +1,25 @@
 /**
  * Integration test for cmux-relay
  *
- * Tests the WebSocket server with client connections using
- * workspace/surface model:
- * 1. Client auth (valid/invalid tokens)
- * 2. Workspace/surface management (store updates → client notifications)
- * 3. Output streaming (store sends output → subscribed clients receive it)
- * 4. Input forwarding (client input → InputHandler called)
- * 5. Multi-client broadcast
+ * Tests:
+ * 1. CmuxClient connection state management + JSON-RPC
+ * 2. Client auth (valid/invalid tokens)
+ * 3. Workspace/surface management (store updates → client notifications)
+ * 4. Output streaming (store sends output → subscribed clients receive it)
+ * 5. Input forwarding (client input → InputHandler called)
+ * 6. Multi-client broadcast
  */
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { type Server } from 'node:http';
+import { createServer as createNetServer, type Socket } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import WebSocket from 'ws';
 import { SessionStore } from '../packages/server/src/session-store.js';
 import { createWSServer } from '../packages/server/src/ws-server.js';
+import { CmuxClient } from '../packages/server/src/cmux-client.js';
 import type { IInputHandler } from '../packages/server/src/input-handler.js';
 import jwt from 'jsonwebtoken';
 
@@ -480,5 +484,156 @@ describe('cmux-relay integration', () => {
     assert.equal(notifMsgs.length, 0, 'Should NOT send notifications message when there are none');
 
     await disconnect(ws);
+  });
+});
+
+// ─── CmuxClient tests ───
+
+describe('CmuxClient connection management', () => {
+  let mockServer: ReturnType<typeof createNetServer>;
+  let socketPath: string;
+  let client: CmuxClient;
+  let mockHandler: ((sock: Socket) => void) | null = null;
+
+  // Mock JSON-RPC handler
+  const jsonRpcHandler = (sock: Socket) => {
+    sock.on('data', (data) => {
+      const lines = data.toString().split('\n').filter(Boolean);
+      for (const line of lines) {
+        try {
+          const req = JSON.parse(line);
+          if (mockHandler) {
+            mockHandler(sock);
+          } else {
+            // Default: respond with workspaces
+            sock.write(JSON.stringify({
+              id: req.id,
+              ok: true,
+              result: { workspaces: [{ id: 'ws1', title: 'Test', index: 0 }] },
+            }) + '\n');
+          }
+        } catch { /* skip */ }
+      }
+    });
+  };
+
+  before(async () => {
+    socketPath = join(tmpdir(), `cmux-test-${process.pid}.sock`);
+    mockServer = createNetServer();
+    mockServer.on('connection', jsonRpcHandler);
+
+    await new Promise<void>((resolve) => {
+      mockServer.listen(socketPath, resolve);
+    });
+  });
+
+  after(async () => {
+    client?.disconnect();
+    await new Promise<void>((resolve) => {
+      mockServer.close(() => resolve());
+    });
+  });
+
+  it('starts in disconnected state', () => {
+    client = new CmuxClient(socketPath);
+    assert.equal(client.state, 'disconnected');
+    assert.equal(client.isConnected(), false);
+  });
+
+  it('transitions to connected on successful connect', async () => {
+    const connectPromise = client.connect();
+    assert.equal(client.state, 'connecting');
+
+    await connectPromise;
+    assert.equal(client.state, 'connected');
+    assert.equal(client.isConnected(), true);
+  });
+
+  it('prevents duplicate connect calls', async () => {
+    const stateBefore = client.state;
+    await client.connect(); // Should no-op
+    assert.equal(client.state, stateBefore);
+  });
+
+  it('sends JSON-RPC and receives response', async () => {
+    const workspaces = await client.listWorkspaces();
+    assert.equal(workspaces.length, 1);
+    assert.equal(workspaces[0].id, 'ws1');
+    assert.equal(workspaces[0].title, 'Test');
+  });
+
+  it('rejects requests when disconnected', async () => {
+    client.disconnect();
+    assert.equal(client.state, 'disconnected');
+    assert.equal(client.isConnected(), false);
+
+    await assert.rejects(
+      () => client.listWorkspaces(),
+      { message: 'Not connected to cmux' },
+    );
+  });
+
+  it('fires onDisconnected callback when server closes connection', async () => {
+    let disconnectedCalled = false;
+    const c = new CmuxClient(socketPath);
+
+    await c.connect(() => { disconnectedCalled = true; });
+    assert.equal(c.state, 'connected');
+
+    // Disconnect and reconnect to get a fresh socket we can track
+    c.disconnect();
+
+    // Track server-side sockets
+    const serverSockets: Socket[] = [];
+    const trackHandler = (s: Socket) => { serverSockets.push(s); };
+
+    mockServer.on('connection', trackHandler);
+    await c.connect(() => { disconnectedCalled = true; });
+
+    // Wait for the connection to establish
+    await new Promise(r => setTimeout(r, 100));
+
+    // Destroy the server-side socket
+    for (const s of serverSockets) s.destroy();
+    mockServer.off('connection', trackHandler);
+
+    // Wait for close event
+    await new Promise(r => setTimeout(r, 200));
+    assert.equal(c.state, 'disconnected');
+    assert.equal(disconnectedCalled, true);
+
+    c.disconnect();
+  });
+
+  it('reconnects after disconnect', async () => {
+    const sockPath = join(tmpdir(), `cmux-recon-${Date.now()}.sock`);
+    const reconServer = createNetServer();
+    reconServer.on('connection', jsonRpcHandler);
+    await new Promise<void>(r => reconServer.listen(sockPath, r));
+
+    const c = new CmuxClient(sockPath);
+    await c.connect();
+    assert.equal(c.state, 'connected');
+    assert.equal(c.isConnected(), true);
+
+    c.disconnect();
+    assert.equal(c.state, 'disconnected');
+    assert.equal(c.isConnected(), false);
+
+    await c.connect();
+    assert.equal(c.state, 'connected');
+    assert.equal(c.isConnected(), true);
+
+    c.disconnect();
+    await new Promise<void>(r => reconServer.close(() => r()));
+  });
+
+  it('handles server not available', async () => {
+    const badClient = new CmuxClient(join(tmpdir(), `nonexistent-${Date.now()}.sock`));
+    await assert.rejects(
+      () => badClient.connect(),
+      /Cannot connect to cmux socket/,
+    );
+    assert.equal(badClient.state, 'disconnected');
   });
 });

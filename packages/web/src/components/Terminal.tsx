@@ -68,26 +68,18 @@ export function Terminal({ surfaceId, cols, rows, onInput, onResize }: TerminalP
       const text = new TextDecoder().decode(
         Uint8Array.from(bytes, (c) => c.charCodeAt(0)),
       );
+
       const lines = text.split('\n');
 
-      if (lines.length > t.rows * 2) {
-        // Scrollback data (>2x visible): reset and write full history
+      if (lines.length > (t.rows || 24) * 2) {
+        // Scrollback data: full reset and write
         t.reset();
         t.write(text);
         t.scrollToBottom();
       } else {
-        // Screen snapshot: overwrite visible rows only.
-        // This preserves scrollback buffer from the initial load.
-        let output = '\x1b[H'; // cursor to top-left of visible area
-        for (let i = 0; i < lines.length; i++) {
-          if (i > 0) output += `\x1b[${i + 1};1H`;
-          output += lines[i];
-        }
-        if (lines.length < t.rows) {
-          output += `\x1b[${lines.length + 1};1H\x1b[J`;
-        }
-        t.write(output);
-        t.scrollToBottom();
+        // Screen snapshot: clear and rewrite
+        t.write('\x1b[H\x1b[2J');
+        t.write(text);
       }
     };
     terminalRegistry.set(surfaceId, writeOutput);

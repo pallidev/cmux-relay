@@ -7,6 +7,7 @@ import type { ServerDeps, TlsOptions } from './ws-server.js';
 import type { WorkspaceInfo, SurfaceInfo, PaneInfo, CmuxNotification } from '@cmux-relay/shared';
 import { readFile, writeFile, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 
 const args = process.argv.slice(2);
 const port = parseInt(getArg('--port') || process.env.CMUX_RELAY_PORT || '8080', 10);
@@ -37,7 +38,44 @@ async function loadTlsOptions(): Promise<TlsOptions | undefined> {
 
 const PID_FILE = `${process.env.HOME}/.cmux-relay.pid`;
 
+function killStaleProcesses(): void {
+  try {
+    // Kill all orphaned cmux-relay server processes (tsx watch, node src/index.ts)
+    const out = execSync(
+      `pgrep -f "cmux-relay.*(tsx|src/index)" || true`,
+      { encoding: 'utf-8' }
+    ).trim();
+    if (!out) return;
+
+    const pids = out.split('\n').map(Number).filter(p => p && p !== process.pid);
+    for (const pid of pids) {
+      try {
+        process.kill(pid, 'SIGTERM');
+        console.log(`Killed stale process PID ${pid}`);
+      } catch {
+        // Already dead
+      }
+    }
+    if (pids.length > 0) {
+      // Give processes time to exit
+      execSync('sleep 1');
+    }
+  } catch {
+    // pgrep not available or no matches
+  }
+
+  // Clean up stale pipe processes
+  try {
+    execSync(`pkill -f "cat /var/folders.*cmux-relay" 2>/dev/null || true`);
+  } catch {
+    // Ignore
+  }
+}
+
 async function ensureSingleInstance(): Promise<void> {
+  // First, kill any stale processes we can find
+  killStaleProcesses();
+
   if (!existsSync(PID_FILE)) {
     await writeFile(PID_FILE, `${process.pid}`);
     return;
@@ -87,10 +125,22 @@ async function main() {
     },
   };
 
-  // Connect to cmux BEFORE starting the server so store is populated
   const cmux = new CmuxClient(cmuxSocket || undefined);
   const inputHandler = new InputHandler(cmux);
   deps.inputHandler = inputHandler;
+
+  let isReconnecting = false;
+
+  async function reconnect(): Promise<void> {
+    if (isReconnecting) return;
+    isReconnecting = true;
+    try {
+      await connectWithRetry(cmux);
+      deps.cmux = cmux;
+    } finally {
+      isReconnecting = false;
+    }
+  }
 
   await connectWithRetry(cmux);
 
@@ -100,9 +150,7 @@ async function main() {
   const syncAll = async () => {
     try {
       if (!cmux.isConnected()) {
-        console.log('Reconnecting to cmux...');
-        await connectWithRetry(cmux);
-        deps.cmux = cmux;
+        await reconnect();
       }
 
       const workspaces = await cmux.listWorkspaces();
@@ -214,6 +262,7 @@ async function main() {
   const lastOutput = new Map<string, string>();
   const pollTerminal = async () => {
     try {
+      if (!cmux.isConnected()) return;
       const workspaces = await cmux.listWorkspaces();
       for (const w of workspaces) {
         const surfaces = await cmux.listSurfaces(w.id);
@@ -263,15 +312,19 @@ async function main() {
 }
 
 async function connectWithRetry(cmux: CmuxClient): Promise<void> {
+  let delay = 3000;
+  const maxDelay = 30000;
+
   while (true) {
     try {
       await cmux.connect();
       return;
     } catch (err: any) {
       console.error(`cmux not available: ${err.message}`);
-      console.log('Retrying in 3s... (start cmux to proceed)');
-      await new Promise((r) => setTimeout(r, 3000));
+      console.log(`Retrying in ${delay / 1000}s... (start cmux to proceed)`);
+      await new Promise((r) => setTimeout(r, delay));
       cmux.disconnect();
+      delay = Math.min(delay * 2, maxDelay);
     }
   }
 }

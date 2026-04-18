@@ -6,7 +6,7 @@ import { Terminal, writeToTerminal } from './Terminal';
 import { getRelayWsUrl, getToastType } from '../lib/helpers';
 import type { PaneInfo, CmuxNotification } from '@cmux-relay/shared';
 
-export function RelaySessionLayout({ sessionId }: { sessionId: string }) {
+export function RelaySessionLayout({ sessionId, onDisconnect }: { sessionId: string; onDisconnect?: () => void }) {
   const isMobile = useMobile();
   const [jwt] = useState<string>(() => {
     const match = document.cookie.match(/(?:^|;\s*)relay_jwt=([^;]+)/);
@@ -17,12 +17,12 @@ export function RelaySessionLayout({ sessionId }: { sessionId: string }) {
     ? `${getRelayWsUrl()}/ws/client?session=${sessionId}&token=${encodeURIComponent(jwt)}`
     : `${getRelayWsUrl()}/ws/client?session=${sessionId}`;
 
-  if (isMobile) return <MobileLayout relayWsUrl={wsUrl} />;
+  if (isMobile) return <MobileLayout relayWsUrl={wsUrl} onDisconnect={onDisconnect} />;
 
-  return <RelaySessionInner wsUrl={wsUrl} />;
+  return <RelaySessionInner wsUrl={wsUrl} onDisconnect={onDisconnect} />;
 }
 
-function RelaySessionInner({ wsUrl }: { wsUrl: string }) {
+function RelaySessionInner({ wsUrl, onDisconnect }: { wsUrl: string; onDisconnect?: () => void }) {
   const [showSidebar, setShowSidebar] = useState(true);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
@@ -42,6 +42,10 @@ function RelaySessionInner({ wsUrl }: { wsUrl: string }) {
     onOutput,
     onNotifications,
   } = useRelay({ url: wsUrl });
+
+  useEffect(() => {
+    if (status === 'disconnected') onDisconnect?.();
+  }, [status, onDisconnect]);
 
   onOutput(useCallback((surfaceId: string, data: string) => {
     writeToTerminal(surfaceId, data);

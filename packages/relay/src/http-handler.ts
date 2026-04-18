@@ -40,7 +40,7 @@ export async function handleHttpRequest(
 
     res.writeHead(302, {
       Location: `${WEB_URL}/`,
-      'Set-Cookie': `relay_jwt=${jwt}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${30 * 24 * 60 * 60}`,
+      'Set-Cookie': `relay_jwt=${jwt}; Path=/; Secure; SameSite=Lax; Max-Age=${30 * 24 * 60 * 60}`,
     });
     res.end();
     return;

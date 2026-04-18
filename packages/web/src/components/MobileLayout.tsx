@@ -43,6 +43,9 @@ export function MobileLayout({ relayWsUrl }: { relayWsUrl?: string }) {
   const isSwiping = useRef(false);
   const userSelectedRef = useRef(false);
   const activeSurfaceIdRef = useRef<string | null>(null);
+  const terminalAreaRef = useRef<HTMLDivElement>(null);
+  const [mobileDims, setMobileDims] = useState<{ cols: number; rows: number } | null>(null);
+  const resizeSentRef = useRef(false);
 
   // Only process output for the selected surface
   onOutput(useCallback((surfaceId: string, data: string) => {
@@ -50,6 +53,30 @@ export function MobileLayout({ relayWsUrl }: { relayWsUrl?: string }) {
       writeToTerminal(surfaceId, data);
     }
   }, []));
+
+  // Calculate mobile terminal dimensions from container size
+  useEffect(() => {
+    if (!terminalAreaRef.current) return;
+    const rect = terminalAreaRef.current.getBoundingClientRect();
+    // Cell dimensions matching Terminal.tsx config (Menlo 13px)
+    const CELL_WIDTH = 7.8;
+    const CELL_HEIGHT = 17;
+    const cols = Math.max(40, Math.min(Math.floor(rect.width / CELL_WIDTH), 200));
+    const rows = Math.max(10, Math.min(Math.floor(rect.height / CELL_HEIGHT), 80));
+    setMobileDims({ cols, rows });
+  }, [status]);
+
+  // Send mobile resize when surface is selected
+  useEffect(() => {
+    if (!mobileDims || !selectedSurfaceId || status !== 'connected' || resizeSentRef.current) return;
+    sendResize(selectedSurfaceId, mobileDims.cols, mobileDims.rows, true);
+    resizeSentRef.current = true;
+  }, [mobileDims, selectedSurfaceId, status, sendResize]);
+
+  // Reset resize flag when surface changes
+  useEffect(() => {
+    resizeSentRef.current = false;
+  }, [selectedSurfaceId]);
 
   // Show in-app toast when new notifications arrive
   useEffect(() => {
@@ -254,6 +281,7 @@ export function MobileLayout({ relayWsUrl }: { relayWsUrl?: string }) {
 
         {/* Terminal area with swipe support */}
         <div
+          ref={terminalAreaRef}
           className="mobile-terminal-area"
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
@@ -266,10 +294,10 @@ export function MobileLayout({ relayWsUrl }: { relayWsUrl?: string }) {
           {activeSurface ? (
             <Terminal
               surfaceId={activeSurface.id}
-              cols={wsPanes.find(p => p.selectedSurfaceId === activeSurface.id)?.columns}
-              rows={wsPanes.find(p => p.selectedSurfaceId === activeSurface.id)?.rows}
+              cols={mobileDims?.cols}
+              rows={mobileDims?.rows}
               onInput={(data) => sendInput(activeSurface.id, data)}
-              onResize={(cols, rows) => sendResize(activeSurface.id, cols, rows)}
+              onResize={(cols, rows) => sendResize(activeSurface.id, cols, rows, true)}
             />
           ) : (
             <div className="no-pane-hint">

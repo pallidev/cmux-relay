@@ -125,9 +125,9 @@ export function useRelay({ url, token, sessionId }: UseRelayOptions) {
     );
   }, []);
 
-  const sendResize = useCallback((surfaceId: string, cols: number, rows: number) => {
+  const sendResize = useCallback((surfaceId: string, cols: number, rows: number, isMobile?: boolean) => {
     wsRef.current?.send(
-      JSON.stringify({ type: 'resize', surfaceId, payload: { cols, rows } }),
+      JSON.stringify({ type: 'resize', surfaceId, payload: { cols, rows, isMobile } }),
     );
   }, []);
 

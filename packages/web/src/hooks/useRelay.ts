@@ -3,7 +3,13 @@ import type { WorkspaceInfo, SurfaceInfo, PaneInfo, FrameRect, CmuxNotification 
 
 type RelayStatus = 'connecting' | 'connected' | 'disconnected';
 
-export function useRelay(url: string, token: string) {
+interface UseRelayOptions {
+  url: string;
+  token?: string;
+  sessionId?: string;
+}
+
+export function useRelay({ url, token, sessionId }: UseRelayOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const [status, setStatus] = useState<RelayStatus>('disconnected');
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([]);
@@ -25,13 +31,17 @@ export function useRelay(url: string, token: string) {
   }, []);
 
   useEffect(() => {
+    if (!url) return;
+
     const ws = new WebSocket(url);
     wsRef.current = ws;
     setStatus('connecting');
 
     ws.onopen = () => {
       setStatus('connected');
-      ws.send(JSON.stringify({ type: 'auth', payload: { token } }));
+      if (token) {
+        ws.send(JSON.stringify({ type: 'auth', payload: { token } }));
+      }
     };
 
     ws.onmessage = (event) => {
@@ -70,7 +80,6 @@ export function useRelay(url: string, token: string) {
           outputCbRef.current(msg.surfaceId, msg.payload.data);
           break;
         case 'notifications':
-          console.log('[relay] notifications received:', msg.payload.notifications.length, msg.payload.notifications);
           setNotifications(prev => {
             const existingIds = new Set(prev.map(n => n.id));
             const newOnes = msg.payload.notifications.filter((n: CmuxNotification) => !existingIds.has(n.id));
@@ -91,7 +100,7 @@ export function useRelay(url: string, token: string) {
       ws.close();
       wsRef.current = null;
     };
-  }, [url, token]);
+  }, [url, token, sessionId]);
 
   const selectSurface = useCallback((surfaceId: string) => {
     wsRef.current?.send(JSON.stringify({ type: 'surface.select', surfaceId }));

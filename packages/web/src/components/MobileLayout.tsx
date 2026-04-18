@@ -1,10 +1,10 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useRelay } from '../hooks/useRelay';
 import { Terminal, writeToTerminal } from './Terminal';
-import { getRelayUrl, getToastType } from '../lib/helpers';
+import { getRelayWsUrl, getToastType } from '../lib/helpers';
 import type { CmuxNotification } from '@cmux-relay/shared';
 
-const RELAY_URL = getRelayUrl();
+const RELAY_URL = getRelayWsUrl();
 
 export function MobileLayout() {
   const [token, setToken] = useState(() => {
@@ -31,7 +31,7 @@ export function MobileLayout() {
     sendInput,
     sendResize,
     onOutput,
-  } = useRelay(submitted ? RELAY_URL : '', submitted ? token : '');
+  } = useRelay(submitted ? { url: RELAY_URL, token } : { url: '' });
 
   const [toasts, setToasts] = useState<CmuxNotification[]>([]);
   const prevNotifCount = useRef(0);

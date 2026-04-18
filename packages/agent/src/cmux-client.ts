@@ -159,9 +159,28 @@ export class CmuxClient {
     return result.surfaces || [];
   }
 
+  private ansiSupported = true;
+
   async readTerminalText(surfaceId: string, scrollback = false): Promise<string> {
     const params: Record<string, unknown> = { surface_id: surfaceId };
     if (scrollback) params.scrollback = true;
+
+    // Try ansi: true first (cmux PR #1131 — preserves ANSI escape sequences)
+    if (this.ansiSupported) {
+      try {
+        params.ansi = true;
+        const result = await this.send('surface.read_text', params) as { base64: string };
+        if (result.base64) {
+          return Buffer.from(result.base64, 'base64').toString('utf-8');
+        }
+        return '';
+      } catch {
+        // ansi param not supported yet — fall back to plain text
+        this.ansiSupported = false;
+        delete params.ansi;
+      }
+    }
+
     const result = await this.send('surface.read_text', params) as { base64: string };
     if (result.base64) {
       return Buffer.from(result.base64, 'base64').toString('utf-8');

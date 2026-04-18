@@ -4,27 +4,33 @@ import { useMobile } from '../hooks/useMobile';
 import { MobileLayout } from './MobileLayout';
 import { Terminal, writeToTerminal } from './Terminal';
 import { getRelayWsUrl, getToastType } from '../lib/helpers';
+import { LoginPage } from './LoginPage';
 import type { PaneInfo, CmuxNotification } from '@cmux-relay/shared';
 
-const RELAY_URL = getRelayWsUrl();
-
-export function Layout() {
+export function RelaySessionLayout({ sessionId }: { sessionId: string }) {
   const isMobile = useMobile();
-
-  // All hooks must be called before any conditional return
-  const [token, setToken] = useState(() => {
-    const params = new URLSearchParams(window.location.search);
-    const urlToken = params.get('token');
-    if (urlToken) {
-      localStorage.setItem('cmux-relay-token', urlToken);
-      window.history.replaceState({}, '', window.location.pathname);
-      return urlToken;
-    }
-    return localStorage.getItem('cmux-relay-token') || '';
+  const [jwt, setJwt] = useState<string>(() => {
+    const match = document.cookie.match(/(?:^|;\s*)relay_jwt=([^;]+)/);
+    return match ? match[1] : '';
   });
-  const [submitted, setSubmitted] = useState(() => !!localStorage.getItem('cmux-relay-token'));
+
+  if (!jwt) {
+    return <LoginPage />;
+  }
+
+  if (isMobile) return <MobileLayout />;
+
+  const wsUrl = `${getRelayWsUrl()}/ws/client?session=${sessionId}&token=${encodeURIComponent(jwt)}`;
+
+  return <RelaySessionInner wsUrl={wsUrl} />;
+}
+
+function RelaySessionInner({ wsUrl }: { wsUrl: string }) {
   const [showSidebar, setShowSidebar] = useState(true);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
+  const [showNotifPanel, setShowNotifPanel] = useState(false);
+  const [toasts, setToasts] = useState<CmuxNotification[]>([]);
+  const prevNotifCount = useRef(0);
 
   const {
     status,
@@ -38,18 +44,12 @@ export function Layout() {
     sendResize,
     onOutput,
     onNotifications,
-  } = useRelay(submitted ? { url: RELAY_URL, token } : { url: '' });
+  } = useRelay({ url: wsUrl });
 
-  const [showNotifPanel, setShowNotifPanel] = useState(false);
-  const [toasts, setToasts] = useState<CmuxNotification[]>([]);
-  const prevNotifCount = useRef(0);
-
-  // Route output to the correct terminal instance
   onOutput(useCallback((surfaceId: string, data: string) => {
     writeToTerminal(surfaceId, data);
   }, []));
 
-  // Show in-app toast when new notifications arrive
   useEffect(() => {
     if (notifications.length <= prevNotifCount.current) {
       prevNotifCount.current = notifications.length;
@@ -57,97 +57,39 @@ export function Layout() {
     }
     const newNotifs = notifications.slice(0, notifications.length - prevNotifCount.current);
     prevNotifCount.current = notifications.length;
-
-    // Show toast popup
     setToasts(prev => [...prev, ...newNotifs]);
     setTimeout(() => {
       setToasts(prev => prev.length > newNotifs.length ? prev.slice(newNotifs.length) : []);
     }, 5000);
   }, [notifications]);
 
-  // Browser notification support
-  const pendingBrowserNotifs = useRef<CmuxNotification[]>([]);
-
-  useEffect(() => {
-    if (status === 'connected' && 'Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().then((p) => {
-        if (p === 'granted' && pendingBrowserNotifs.current.length > 0) {
-          for (const n of pendingBrowserNotifs.current) {
-            new Notification(n.title, { body: n.subtitle ? `${n.subtitle}: ${n.body}` : n.body, tag: n.id });
-          }
-          pendingBrowserNotifs.current = [];
-        }
-      });
-    }
-  }, [status]);
-
-  // Keep onNotifications wired for browser notifications
   onNotifications(useCallback((newNotifs: CmuxNotification[]) => {
     for (const n of newNotifs) {
       if ('Notification' in window && Notification.permission === 'granted') {
         new Notification(n.title, { body: n.subtitle ? `${n.subtitle}: ${n.body}` : n.body, tag: n.id });
-      } else {
-        pendingBrowserNotifs.current.push(n);
       }
     }
   }, []));
 
-  // Auto-select first workspace with panes on initial load
   useEffect(() => {
     if (selectedWorkspaceId) return;
     if (workspaces.length === 0 || panes.length === 0) return;
-
     const firstWsId = workspaces[0].id;
     setSelectedWorkspaceId(firstWsId);
-
-    // Select all surfaces for panes in this workspace
     const wsPanes = panes.filter(p => p.workspaceId === firstWsId);
     for (const pane of wsPanes) {
       selectSurface(pane.selectedSurfaceId);
     }
   }, [panes, workspaces, selectedWorkspaceId, selectSurface]);
 
-  // Mobile: delegate to MobileLayout after all hooks are called
-  if (isMobile) return <MobileLayout />;
-
-  const handleConnect = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!token.trim()) return;
-    localStorage.setItem('cmux-relay-token', token);
-    setSubmitted(true);
-  };
-
-  if (!submitted) {
-    return (
-      <div className="login-screen">
-        <div className="login-card">
-          <h1>cmux-relay</h1>
-          <p>Monitor your cmux terminals from mobile</p>
-          <form onSubmit={handleConnect}>
-            <input
-              type="text"
-              placeholder="Enter token"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              autoFocus
-            />
-            <button type="submit">Connect</button>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
   const handleSelectWorkspace = (workspaceId: string) => {
     setSelectedWorkspaceId(workspaceId);
-    // Select all pane surfaces for this workspace
     const wsPanes = panes.filter(p => p.workspaceId === workspaceId);
     if (wsPanes.length > 0) {
       for (const pane of wsPanes) {
         selectSurface(pane.selectedSurfaceId);
       }
     } else {
-      // Fallback: select first surface
       const wsSurfaces = surfaces.filter(s => s.workspaceId === workspaceId);
       if (wsSurfaces.length > 0) {
         selectSurface(wsSurfaces[0].id);
@@ -155,12 +97,10 @@ export function Layout() {
     }
   };
 
-  // Get panes for the selected workspace (now available for ALL workspaces)
   const wsPanes = selectedWorkspaceId
     ? panes.filter(p => p.workspaceId === selectedWorkspaceId).sort((a, b) => a.index - b.index)
     : [];
 
-  // Calculate actual pane bounding box
   const paneBounds = wsPanes.length > 0 ? wsPanes.reduce((acc, p) => ({
     minX: Math.min(acc.minX, p.frame.x),
     minY: Math.min(acc.minY, p.frame.y),
@@ -168,19 +108,12 @@ export function Layout() {
     maxY: Math.max(acc.maxY, p.frame.y + p.frame.height),
   }), { minX: Infinity, minY: Infinity, maxX: 0, maxY: 0 }) : null;
 
-  // Surfaces for the selected workspace (fallback when no pane data)
   const wsSurfaces = selectedWorkspaceId
     ? surfaces.filter(s => s.workspaceId === selectedWorkspaceId && s.type === 'terminal')
     : [];
 
   const dismissToast = (i: number) => {
     setToasts(prev => prev.filter((_, idx) => idx !== i));
-  };
-
-  const clickToast = (n: CmuxNotification, i: number) => {
-    if (n.workspaceId) setSelectedWorkspaceId(n.workspaceId);
-    if (n.surfaceId) selectSurface(n.surfaceId);
-    dismissToast(i);
   };
 
   return (
@@ -239,7 +172,7 @@ export function Layout() {
               {workspaces.length === 0 ? (
                 <div className="sidebar-empty">
                   <p>No workspaces</p>
-                  <p className="hint">Start cmux to see your workspaces</p>
+                  <p className="hint">Waiting for agent connection...</p>
                 </div>
               ) : (
                 workspaces.map((w) => {
@@ -261,10 +194,9 @@ export function Layout() {
           <main className="terminal-area">
             {selectedWorkspaceId ? (
               wsPanes.length > 0 && paneBounds ? (
-                /* Workspace with pane layout (all workspaces now have pane data) */
                 <div className="pane-container">
                   {wsPanes.map((pane) => (
-                    <PaneView
+                    <RelayPaneView
                       key={pane.id}
                       pane={pane}
                       bounds={paneBounds}
@@ -276,13 +208,22 @@ export function Layout() {
                   ))}
                 </div>
               ) : wsSurfaces.length > 0 ? (
-                /* Fallback: surface grid when no pane data available */
-                <SurfaceListView
-                  surfaces={wsSurfaces}
-                  selectSurface={selectSurface}
-                  sendInput={sendInput}
-                  sendResize={sendResize}
-                />
+                <div className="surface-grid">
+                  {wsSurfaces.map((s) => (
+                    <div key={s.id} className="pane" onClick={() => selectSurface(s.id)}>
+                      <div className="pane-tabs">
+                        <button className="pane-tab active">{s.title || s.id.slice(0, 8)}</button>
+                      </div>
+                      <div className="pane-terminal">
+                        <Terminal
+                          surfaceId={s.id}
+                          onInput={(data) => sendInput(s.id, data)}
+                          onResize={(cols, rows) => sendResize(s.id, cols, rows)}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
               ) : (
                 <div className="no-pane-hint">
                   <p>Loading terminals...</p>
@@ -297,7 +238,6 @@ export function Layout() {
         </div>
       </div>
 
-      {/* Toast notifications — top-right with slide-in animation */}
       {toasts.length > 0 && (
         <div className="toast-container">
           {toasts.map((n, i) => {
@@ -306,7 +246,7 @@ export function Layout() {
               <div
                 key={`${n.id}-${i}`}
                 className={`toast toast-${toastType}`}
-                onClick={() => clickToast(n, i)}
+                onClick={() => dismissToast(i)}
               >
                 <span className="toast-icon">
                   {n.title.toLowerCase().includes('claude') ? '\uD83E\uDD16' : '\uD83D\uDD14'}
@@ -333,8 +273,7 @@ export function Layout() {
   );
 }
 
-/** Single pane with optional tab bar */
-function PaneView({
+function RelayPaneView({
   pane,
   bounds,
   surfaces,
@@ -351,7 +290,6 @@ function PaneView({
 }) {
   const [localSurfaceId, setLocalSurfaceId] = useState(pane.selectedSurfaceId);
 
-  // Sync with cmux selected surface when it changes externally
   useEffect(() => {
     setLocalSurfaceId(pane.selectedSurfaceId);
   }, [pane.selectedSurfaceId]);
@@ -365,7 +303,6 @@ function PaneView({
     .map(id => surfaces.find(s => s.id === id))
     .filter(Boolean) as { id: string; title: string; type: string }[];
 
-  // Convert pixel frame to percentage using actual pane bounding box
   const b = bounds || { minX: 0, minY: 0, maxX: 1, maxY: 1 };
   const contentW = b.maxX - b.minX;
   const contentH = b.maxY - b.minY;
@@ -403,72 +340,6 @@ function PaneView({
           rows={pane.rows}
           onInput={(data) => sendInput(localSurfaceId, data)}
           onResize={(cols, rows) => sendResize(localSurfaceId, cols, rows)}
-        />
-      </div>
-    </div>
-  );
-}
-
-/** Grid layout for non-active workspaces (surfaces shown side by side) */
-function SurfaceListView({
-  surfaces,
-  selectSurface,
-  sendInput,
-  sendResize,
-}: {
-  surfaces: { id: string; title: string; type: string }[];
-  selectSurface: (id: string) => void;
-  sendInput: (surfaceId: string, data: string) => void;
-  sendResize: (surfaceId: string, cols: number, rows: number) => void;
-}) {
-  return (
-    <div className="surface-grid">
-      {surfaces.map((s) => (
-        <SurfaceCard
-          key={s.id}
-          surface={s}
-          selectSurface={selectSurface}
-          sendInput={sendInput}
-          sendResize={sendResize}
-        />
-      ))}
-    </div>
-  );
-}
-
-function SurfaceCard({
-  surface,
-  selectSurface,
-  sendInput,
-  sendResize,
-}: {
-  surface: { id: string; title: string; type: string };
-  selectSurface: (id: string) => void;
-  sendInput: (surfaceId: string, data: string) => void;
-  sendResize: (surfaceId: string, cols: number, rows: number) => void;
-}) {
-  const [isFocused, setIsFocused] = useState(false);
-
-  const handleFocus = () => {
-    setIsFocused(true);
-    selectSurface(surface.id);
-  };
-
-  return (
-    <div className={`pane ${isFocused ? 'focused' : ''}`}
-      onFocus={handleFocus}
-      onClick={handleFocus}
-    >
-      <div className="pane-tabs">
-        <button className="pane-tab active">
-          {surface.title || surface.id.slice(0, 8)}
-        </button>
-      </div>
-      <div className="pane-terminal">
-        <Terminal
-          surfaceId={surface.id}
-          onInput={(data) => sendInput(surface.id, data)}
-          onResize={(cols, rows) => sendResize(surface.id, cols, rows)}
         />
       </div>
     </div>

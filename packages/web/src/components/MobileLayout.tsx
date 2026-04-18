@@ -6,7 +6,7 @@ import type { CmuxNotification } from '@cmux-relay/shared';
 
 const RELAY_URL = getRelayWsUrl();
 
-export function MobileLayout({ relayWsUrl }: { relayWsUrl?: string }) {
+export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string; onDisconnect?: () => void }) {
   const [token, setToken] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     const urlToken = params.get('token');
@@ -36,6 +36,10 @@ export function MobileLayout({ relayWsUrl }: { relayWsUrl?: string }) {
   } = useRelay(relayUrl ? { url: relayUrl } : { url: '' });
 
   const [toasts, setToasts] = useState<CmuxNotification[]>([]);
+
+  useEffect(() => {
+    if (status === 'disconnected') onDisconnect?.();
+  }, [status, onDisconnect]);
   const prevNotifCount = useRef(0);
   const userSelectedRef = useRef(false);
   const activeSurfaceIdRef = useRef<string | null>(null);

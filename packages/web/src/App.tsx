@@ -44,28 +44,31 @@ function TerminalPage() {
   });
   const [loading, setLoading] = useState(true);
 
+  const fetchSession = () => {
+    if (!jwt) return;
+    fetch('/api/sessions', { headers: { Authorization: `Bearer ${jwt}` } })
+      .then(res => res.ok ? res.json() : [])
+      .then(data => {
+        const sessions = Array.isArray(data) ? data : [];
+        if (sessions.length > 0) {
+          const id = sessions[0].sessionId;
+          localStorage.setItem('cmux-session-id', id);
+          setSessionId(id);
+        }
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  };
+
   useEffect(() => {
     if (!jwt) { setLoading(false); return; }
+    if (!sessionId) { fetchSession(); return; }
+    setLoading(false);
+  }, [jwt]);
 
-    const poll = () => {
-      fetch('/api/sessions', { headers: { Authorization: `Bearer ${jwt}` } })
-        .then(res => res.ok ? res.json() : [])
-        .then(data => {
-          const sessions = Array.isArray(data) ? data : [];
-          const latest = sessions.length > 0 ? sessions[0].sessionId : null;
-          if (latest && latest !== sessionId) {
-            localStorage.setItem('cmux-session-id', latest);
-            setSessionId(latest);
-          }
-          setLoading(false);
-        })
-        .catch(() => setLoading(false));
-    };
-
-    poll();
-    const interval = setInterval(poll, 5000);
-    return () => clearInterval(interval);
-  }, [jwt, sessionId]);
+  const handleDisconnect = () => {
+    setTimeout(fetchSession, 2000);
+  };
 
   if (!jwt) return <LoginPage />;
   if (loading) return null;
@@ -73,7 +76,7 @@ function TerminalPage() {
     window.location.href = '/';
     return null;
   }
-  return <RelaySessionLayout key={sessionId} sessionId={sessionId} />;
+  return <RelaySessionLayout key={sessionId} sessionId={sessionId} onDisconnect={handleDisconnect} />;
 }
 
 function HomePage() {

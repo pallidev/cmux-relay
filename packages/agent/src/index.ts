@@ -150,6 +150,8 @@ async function main() {
 async function runLocalMode() {
   await ensureSingleInstance();
   console.log('cmux-relay agent starting (local mode)...');
+  console.log(`  cmux socket: ${cmuxSocket || process.env.CMUX_SOCKET_PATH || `${process.env.HOME}/Library/Application Support/cmux/cmux.sock`}`);
+  console.log(`  listening: ${host}:${port}`);
 
   const store = new SessionStore();
   const deps: ServerDeps = {
@@ -336,6 +338,9 @@ async function runLocalMode() {
 
 async function runCloudMode(savedAuth: AuthData | null) {
   console.log('cmux-relay agent starting (cloud mode)...');
+  console.log(`  cmux socket: ${cmuxSocket || process.env.CMUX_SOCKET_PATH || `${process.env.HOME}/Library/Application Support/cmux/cmux.sock`}`);
+  console.log(`  relay: ${relayUrl}`);
+  console.log(`  auth: ${apiToken ? 'API token' : savedAuth ? 'saved token' : 'none (pairing required)'}`);
 
   const store = new SessionStore();
   const cmux = new CmuxClient(cmuxSocket || undefined);
@@ -347,12 +352,15 @@ async function runCloudMode(savedAuth: AuthData | null) {
     cmux: undefined,
   };
 
+  console.log('Connecting to cmux...');
   await connectWithRetry(cmux);
   msgDeps.cmux = cmux;
+  console.log('cmux connected!');
 
   const token = apiToken || savedAuth?.token || undefined;
   const url = relayUrl || savedAuth?.relayUrl || 'wss://relay.jaz.duckdns.org/ws/agent';
 
+  console.log('Connecting to relay server...');
   const relay = new RelayConnection(url, token);
 
   if (!token) {
@@ -507,14 +515,18 @@ async function runCloudMode(savedAuth: AuthData | null) {
 async function connectWithRetry(cmux: CmuxClient): Promise<void> {
   let delay = 3000;
   const maxDelay = 30000;
+  let attempt = 0;
 
   while (true) {
+    attempt++;
     try {
+      if (attempt > 1) console.log(`[cmux] Connection attempt ${attempt}...`);
       await cmux.connect();
+      console.log(`[cmux] Connected successfully`);
       return;
     } catch (err: any) {
-      console.error(`cmux not available: ${err.message}`);
-      console.log(`Retrying in ${delay / 1000}s... (start cmux to proceed)`);
+      console.error(`[cmux] Connection failed: ${err.message}`);
+      console.log(`[cmux] Make sure cmux (Ghostty) is running. Retrying in ${delay / 1000}s...`);
       await new Promise((r) => setTimeout(r, delay));
       cmux.disconnect();
       delay = Math.min(delay * 2, maxDelay);

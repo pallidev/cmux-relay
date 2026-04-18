@@ -1,11 +1,12 @@
 {
   "name": "cmux-relay-agent",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "bin": {
     "cmux-relay": "./dist/bin.js"
   },
   "files": [
-    "dist/bin.js"
+    "dist/bin.js",
+    "README.md"
   ],
   "scripts": {
     "dev": "tsx watch src/index.ts",

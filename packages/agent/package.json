@@ -1,26 +1,27 @@
 {
-  "name": "@cmux-relay/agent",
+  "name": "cmux-relay-agent",
   "version": "0.1.0",
   "type": "module",
   "bin": {
-    "cmux-relay": "./dist/index.js"
+    "cmux-relay": "./dist/bin.js"
   },
   "files": [
-    "dist"
+    "dist/bin.js"
   ],
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
-    "build": "tsc",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/bin.js --banner:js='#!/usr/bin/env node'",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "pnpm build"
+    "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
-    "@cmux-relay/shared": "workspace:*",
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@cmux-relay/shared": "workspace:*",
     "@types/ws": "^8.5.13",
+    "esbuild": "^0.25.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   }

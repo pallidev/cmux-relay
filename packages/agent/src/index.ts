@@ -22,13 +22,14 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 const args = process.argv.slice(2);
+const isLocal = args.includes('--local');
 const port = parseInt(getArg('--port') || process.env.CMUX_RELAY_PORT || '8080', 10);
 const host = getArg('--host') || process.env.CMUX_RELAY_HOST || '0.0.0.0';
 const cmuxSocket = getArg('--socket') || '';
 const tlsCert = getArg('--tls-cert') || process.env.CMUX_RELAY_TLS_CERT || '';
 const tlsKey = getArg('--tls-key') || process.env.CMUX_RELAY_TLS_KEY || '';
 const apiToken = getArg('--token') || process.env.CMUX_RELAY_TOKEN || '';
-const relayUrl = getArg('--relay-url') || process.env.CMUX_RELAY_URL || '';
+const relayUrl = getArg('--relay-url') || process.env.CMUX_RELAY_URL || 'wss://relay.jaz.duckdns.org/ws/agent';
 
 const AUTH_DIR = join(homedir(), '.cmux-relay');
 const AUTH_FILE = join(AUTH_DIR, 'auth.json');
@@ -140,12 +141,11 @@ async function ensureSingleInstance(): Promise<void> {
 
 async function main() {
   const savedAuth = await loadSavedAuth();
-  const isCloudMode = !!apiToken || !!savedAuth || !!relayUrl;
 
-  if (isCloudMode) {
-    await runCloudMode(savedAuth);
-  } else {
+  if (isLocal) {
     await runLocalMode();
+  } else {
+    await runCloudMode(savedAuth);
   }
 }
 

@@ -2,6 +2,7 @@ import { RelaySessionLayout } from './components/RelaySessionLayout';
 import { DashboardPage } from './components/DashboardPage';
 import { LoginPage } from './components/LoginPage';
 import { PairPage } from './components/PairPage';
+import { Layout } from './components/Layout';
 import { useState, useEffect } from 'react';
 
 function getPairCodeFromPath(): string | null {
@@ -11,6 +12,17 @@ function getPairCodeFromPath(): string | null {
 
 function isTerminalPath(): boolean {
   return window.location.pathname === '/terminal';
+}
+
+function useLocalMode(): { isLocal: boolean | null } {
+  const [isLocal, setIsLocal] = useState<boolean | null>(null);
+  useEffect(() => {
+    fetch('/api/mode')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => setIsLocal(data?.mode === 'local'))
+      .catch(() => setIsLocal(false));
+  }, []);
+  return { isLocal };
 }
 
 export default function App() {
@@ -65,16 +77,14 @@ function TerminalPage() {
 }
 
 function HomePage() {
-  const [jwt, setJwt] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
+  const [jwt, setJwt] = useState<string | null>(() => {
     const match = document.cookie.match(/(?:^|;\s*)relay_jwt=([^;]+)/);
-    if (match) setJwt(match[1]);
-    setLoading(false);
-  }, []);
+    return match ? match[1] : null;
+  });
+  const { isLocal } = useLocalMode();
 
-  if (loading) return null;
   if (!jwt) return <LoginPage />;
+  if (isLocal === null) return null;
+  if (isLocal) return <Layout />;
   return <DashboardPage jwt={jwt} />;
 }

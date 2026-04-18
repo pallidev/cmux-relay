@@ -20,9 +20,12 @@ export function Layout() {
       window.history.replaceState({}, '', window.location.pathname);
       return urlToken;
     }
-    return localStorage.getItem('cmux-relay-token') || '';
+    const stored = localStorage.getItem('cmux-relay-token');
+    if (stored) return stored;
+    const cookieMatch = document.cookie.match(/(?:^|;\s*)relay_jwt=([^;]+)/);
+    return cookieMatch ? cookieMatch[1] : '';
   });
-  const [submitted, setSubmitted] = useState(() => !!localStorage.getItem('cmux-relay-token'));
+  const [submitted, setSubmitted] = useState(() => !!token);
   const [showSidebar, setShowSidebar] = useState(true);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
 

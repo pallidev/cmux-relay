@@ -263,7 +263,7 @@ async function runLocalMode() {
   };
   await pollNotifications();
 
-  const wss = await createWSServer(port, host, deps, await loadTlsOptions());
+  const wss = await createWSServer(port, host, deps, await loadTlsOptions(), true);
 
   const syncInterval = setInterval(syncAll, 5000);
 

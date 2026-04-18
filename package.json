@@ -15,7 +15,9 @@
     "dev:relay": "pnpm --filter @cmux-relay/relay dev",
     "dev:web": "pnpm --filter web dev",
     "typecheck": "pnpm -r run typecheck",
-    "test": "node --import tsx --test tests/integration.test.ts"
+    "test": "node --import tsx --test --test-concurrency 1 tests/**/*.test.ts",
+    "test:unit": "node --import tsx --test tests/unit/**/*.test.ts",
+    "test:integration": "node --import tsx --test tests/integration.test.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",

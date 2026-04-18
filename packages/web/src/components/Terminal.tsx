@@ -117,7 +117,8 @@ export function Terminal({ surfaceId, cols, rows, onInput, onResize }: TerminalP
     <div
       ref={containerRef}
       style={{
-        width: '100%',
+        width: cols ? `${cols * 7.8}px` : '100%',
+        minWidth: '100%',
         height: '100%',
         backgroundColor: '#1e1e2e',
         overflow: 'hidden',

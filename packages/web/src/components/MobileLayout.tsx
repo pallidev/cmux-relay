@@ -37,15 +37,8 @@ export function MobileLayout({ relayWsUrl }: { relayWsUrl?: string }) {
 
   const [toasts, setToasts] = useState<CmuxNotification[]>([]);
   const prevNotifCount = useRef(0);
-  const [swipeOffset, setSwipeOffset] = useState(0);
-  const touchStartX = useRef(0);
-  const touchStartY = useRef(0);
-  const isSwiping = useRef(false);
   const userSelectedRef = useRef(false);
   const activeSurfaceIdRef = useRef<string | null>(null);
-  const terminalAreaRef = useRef<HTMLDivElement>(null);
-  const [mobileDims, setMobileDims] = useState<{ cols: number; rows: number } | null>(null);
-  const resizeSentRef = useRef(false);
 
   // Only process output for the selected surface
   onOutput(useCallback((surfaceId: string, data: string) => {
@@ -53,30 +46,6 @@ export function MobileLayout({ relayWsUrl }: { relayWsUrl?: string }) {
       writeToTerminal(surfaceId, data);
     }
   }, []));
-
-  // Calculate mobile terminal dimensions from container size
-  useEffect(() => {
-    if (!terminalAreaRef.current) return;
-    const rect = terminalAreaRef.current.getBoundingClientRect();
-    // Cell dimensions matching Terminal.tsx config (Menlo 13px)
-    const CELL_WIDTH = 7.8;
-    const CELL_HEIGHT = 17;
-    const cols = Math.max(40, Math.min(Math.floor(rect.width / CELL_WIDTH), 200));
-    const rows = Math.max(10, Math.min(Math.floor(rect.height / CELL_HEIGHT), 80));
-    setMobileDims({ cols, rows });
-  }, [status]);
-
-  // Send mobile resize when surface is selected
-  useEffect(() => {
-    if (!mobileDims || !selectedSurfaceId || status !== 'connected' || resizeSentRef.current) return;
-    sendResize(selectedSurfaceId, mobileDims.cols, mobileDims.rows, true);
-    resizeSentRef.current = true;
-  }, [mobileDims, selectedSurfaceId, status, sendResize]);
-
-  // Reset resize flag when surface changes
-  useEffect(() => {
-    resizeSentRef.current = false;
-  }, [selectedSurfaceId]);
 
   // Show in-app toast when new notifications arrive
   useEffect(() => {
@@ -187,33 +156,6 @@ export function MobileLayout({ relayWsUrl }: { relayWsUrl?: string }) {
     }
   };
 
-  // Touch handlers for swipe
-  const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0].clientX;
-    touchStartY.current = e.touches[0].clientY;
-    isSwiping.current = false;
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    const dx = e.touches[0].clientX - touchStartX.current;
-    const dy = e.touches[0].clientY - touchStartY.current;
-    // Only track horizontal swipes
-    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 10) {
-      isSwiping.current = true;
-      setSwipeOffset(dx * 0.3);
-    }
-  };
-
-  const handleTouchEnd = () => {
-    if (isSwiping.current) {
-      const threshold = 50;
-      if (swipeOffset < -threshold) goWorkspace(1);
-      else if (swipeOffset > threshold) goWorkspace(-1);
-    }
-    setSwipeOffset(0);
-    isSwiping.current = false;
-  };
-
   const dismissToast = (i: number) => {
     setToasts(prev => prev.filter((_, idx) => idx !== i));
   };
@@ -279,25 +221,17 @@ export function MobileLayout({ relayWsUrl }: { relayWsUrl?: string }) {
           </div>
         )}
 
-        {/* Terminal area with swipe support */}
+        {/* Terminal area with horizontal scroll */}
         <div
-          ref={terminalAreaRef}
           className="mobile-terminal-area"
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-          style={{
-            transform: `translateX(${swipeOffset}px)`,
-            transition: swipeOffset === 0 ? 'transform 0.25s ease' : 'none',
-          }}
         >
           {activeSurface ? (
             <Terminal
               surfaceId={activeSurface.id}
-              cols={mobileDims?.cols}
-              rows={mobileDims?.rows}
+              cols={wsPanes.find(p => p.selectedSurfaceId === activeSurface.id)?.columns}
+              rows={wsPanes.find(p => p.selectedSurfaceId === activeSurface.id)?.rows}
               onInput={(data) => sendInput(activeSurface.id, data)}
-              onResize={(cols, rows) => sendResize(activeSurface.id, cols, rows, true)}
+              onResize={(cols, rows) => sendResize(activeSurface.id, cols, rows)}
             />
           ) : (
             <div className="no-pane-hint">

@@ -11,6 +11,13 @@ import type { WorkspaceInfo, SurfaceInfo, PaneInfo, RelayToClient } from '@cmux-
 import { readFile, writeFile, unlink, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { execSync } from 'node:child_process';
+
+function openUrl(url: string): void {
+  try {
+    const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
+    execSync(`${cmd} "${url}"`, { stdio: 'ignore' });
+  } catch {}
+}
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -133,7 +140,7 @@ async function ensureSingleInstance(): Promise<void> {
 
 async function main() {
   const savedAuth = await loadSavedAuth();
-  const isCloudMode = !!apiToken || !!savedAuth;
+  const isCloudMode = !!apiToken || !!savedAuth || !!relayUrl;
 
   if (isCloudMode) {
     await runCloudMode(savedAuth);
@@ -366,7 +373,9 @@ async function runCloudMode(savedAuth: AuthData | null) {
 
   const sessionId = await relay.connect();
   const webUrl = process.env.CMUX_WEB_URL || 'https://cmux.jaz.duckdns.org';
-  console.log(`\n  Session ready: ${webUrl}/s/${sessionId}\n`);
+  const sessionUrl = `${webUrl}/s/${sessionId}`;
+  console.log(`\n  Session ready: ${sessionUrl}\n`);
+  openUrl(sessionUrl);
 
   // Broadcast via relay instead of direct WebSocket
   const broadcastViaRelay = (msg: RelayToClient) => {

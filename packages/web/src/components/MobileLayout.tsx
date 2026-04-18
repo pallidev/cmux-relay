@@ -41,10 +41,14 @@ export function MobileLayout({ relayWsUrl }: { relayWsUrl?: string }) {
   const touchStartX = useRef(0);
   const touchStartY = useRef(0);
   const isSwiping = useRef(false);
+  const userSelectedRef = useRef(false);
+  const activeSurfaceIdRef = useRef<string | null>(null);
 
-  // Route output to the correct terminal instance
+  // Only process output for the selected surface
   onOutput(useCallback((surfaceId: string, data: string) => {
-    writeToTerminal(surfaceId, data);
+    if (surfaceId === activeSurfaceIdRef.current) {
+      writeToTerminal(surfaceId, data);
+    }
   }, []));
 
   // Show in-app toast when new notifications arrive
@@ -68,6 +72,11 @@ export function MobileLayout({ relayWsUrl }: { relayWsUrl?: string }) {
     setSelectedWorkspaceId(workspaces[0].id);
   }, [workspaces, selectedWorkspaceId]);
 
+  // Reset manual selection flag on workspace change
+  useEffect(() => {
+    userSelectedRef.current = false;
+  }, [selectedWorkspaceId]);
+
   // Select surfaces for current workspace (mirrors desktop Layout logic)
   useEffect(() => {
     if (!selectedWorkspaceId) return;
@@ -82,17 +91,13 @@ export function MobileLayout({ relayWsUrl }: { relayWsUrl?: string }) {
     let targetId: string | null = null;
 
     if (wsPanes.length > 0) {
-      // Select all pane surfaces (server needs this to start streaming)
-      for (const pane of wsPanes) {
-        selectSurface(pane.selectedSurfaceId);
-      }
       targetId = focusedPane?.selectedSurfaceId || wsPanes[0].selectedSurfaceId;
     } else if (wsSurfaces.length > 0) {
       targetId = wsSurfaces[0].id;
-      selectSurface(targetId);
     }
 
-    if (targetId && targetId !== selectedSurfaceId) {
+    if (targetId && targetId !== selectedSurfaceId && !userSelectedRef.current) {
+      selectSurface(targetId);
       setSelectedSurfaceId(targetId);
     }
   }, [selectedWorkspaceId, panes, surfaces]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -143,6 +148,7 @@ export function MobileLayout({ relayWsUrl }: { relayWsUrl?: string }) {
     || wsSurfaces[0]?.id
     || null;
   const activeSurface = wsSurfaces.find(s => s.id === activeSurfaceId);
+  activeSurfaceIdRef.current = activeSurfaceId;
 
   // Workspace navigation
   const goWorkspace = (direction: -1 | 1) => {
@@ -195,6 +201,7 @@ export function MobileLayout({ relayWsUrl }: { relayWsUrl?: string }) {
   };
 
   const handleTabClick = (surfaceId: string) => {
+    userSelectedRef.current = true;
     setSelectedSurfaceId(surfaceId);
     selectSurface(surfaceId);
   };

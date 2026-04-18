@@ -84,9 +84,6 @@ export function createWSServer(
       });
 
       ws.on('close', () => {
-        if (!deps.store.hasAuthenticatedClients()) {
-          deps.inputHandler.restoreAllMobileSizes();
-        }
         deps.store.unregisterClient(clientId);
         console.log(`Client disconnected: ${clientId}`);
       });
@@ -277,11 +274,7 @@ async function handleClientMessage(
     }
 
     case 'resize': {
-      if (msg.payload.isMobile) {
-        await deps.inputHandler.resizeForMobile(msg.surfaceId, msg.payload.cols, msg.payload.rows);
-      } else {
-        await deps.inputHandler.handleResize(msg.surfaceId, msg.payload.cols, msg.payload.rows);
-      }
+      deps.inputHandler.handleResize(msg.surfaceId, msg.payload.cols, msg.payload.rows);
       break;
     }
   }

@@ -241,10 +241,6 @@ export class CmuxClient {
     return { panes, containerFrame };
   }
 
-  async resizePane(paneId: string, columns: number, rows: number): Promise<void> {
-    await this.send('panel.resize', { panel_id: paneId, columns, rows });
-  }
-
   async listNotifications(): Promise<CmuxNotification[]> {
     const result = await this.send('notification.list') as {
       notifications: Array<{

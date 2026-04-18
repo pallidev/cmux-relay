@@ -290,17 +290,19 @@ async function runLocalMode() {
   const pollTerminal = async () => {
     try {
       if (!cmux.isConnected()) return;
+      const activeIds = store.getActiveSurfaceIds();
+      if (activeIds.size === 0) return;
       const workspaces = await cmux.listWorkspaces();
       for (const w of workspaces) {
         const surfaces = await cmux.listSurfaces(w.id);
         for (const surf of surfaces) {
-          if (surf.type === 'terminal') {
+          if (surf.type === 'terminal' && activeIds.has(surf.id)) {
             const text = await cmux.readTerminalText(surf.id);
             if (text) {
               const b64 = Buffer.from(text).toString('base64');
               if (lastOutput.get(surf.id) !== b64) {
                 lastOutput.set(surf.id, b64);
-                store.broadcastToClients({
+                store.sendToClientsWithSurface(surf.id, {
                   type: 'output',
                   surfaceId: surf.id,
                   payload: { data: b64 },
@@ -465,11 +467,13 @@ async function runCloudMode(savedAuth: AuthData | null) {
   const pollTerminal = async () => {
     try {
       if (!cmux.isConnected()) return;
+      const activeIds = store.getActiveSurfaceIds();
+      if (activeIds.size === 0) return;
       const workspaces = await cmux.listWorkspaces();
       for (const w of workspaces) {
         const surfaces = await cmux.listSurfaces(w.id);
         for (const surf of surfaces) {
-          if (surf.type === 'terminal') {
+          if (surf.type === 'terminal' && activeIds.has(surf.id)) {
             const text = await cmux.readTerminalText(surf.id);
             if (text) {
               const b64 = Buffer.from(text).toString('base64');

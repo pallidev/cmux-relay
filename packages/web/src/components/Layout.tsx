@@ -351,11 +351,6 @@ function PaneView({
 }) {
   const [localSurfaceId, setLocalSurfaceId] = useState(pane.selectedSurfaceId);
 
-  // Sync with cmux selected surface when it changes externally
-  useEffect(() => {
-    setLocalSurfaceId(pane.selectedSurfaceId);
-  }, [pane.selectedSurfaceId]);
-
   const handleTabClick = (surfaceId: string) => {
     setLocalSurfaceId(surfaceId);
     selectSurface(surfaceId);

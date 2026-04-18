@@ -291,10 +291,6 @@ function RelayPaneView({
 }) {
   const [localSurfaceId, setLocalSurfaceId] = useState(pane.selectedSurfaceId);
 
-  useEffect(() => {
-    setLocalSurfaceId(pane.selectedSurfaceId);
-  }, [pane.selectedSurfaceId]);
-
   const handleTabClick = (surfaceId: string) => {
     setLocalSurfaceId(surfaceId);
     selectSurface(surfaceId);

@@ -28,71 +28,139 @@
 
 ## 빠른 시작
 
-### 사전 요구 사항
+필요에 따라 세 가지 방법으로 사용할 수 있습니다.
 
-- [cmux](https://github.com/manaflow-ai/cmux) 설치 및 실행 중
-- Node.js 20+
-- pnpm
+### 1. 에이전트만 사용 (클라우드 릴레이)
 
-### 설치 및 실행
+가장 간단한 방법입니다. Mac에서 에이전트만 실행하면 공개 클라우드 릴레이에 연결되고, 모든 기기에서 터미널에 접속할 수 있습니다.
 
 ```bash
-# 방법 1: 한 줄 실행 (권장)
 npx cmux-relay-agent
-
-# 방법 2: 소스에서 실행
-git clone https://github.com/pallidev/cmux-relay.git
-cd cmux-relay
-pnpm install
-pnpm dev
 ```
 
-끝입니다. 에이전트가:
+에이전트가:
 
 1. 브라우저를 페어링 페이지로 자동 열기
 2. GitHub 로그인 (최초 1회만)
 3. 자동 승인 후 라이브 터미널로 이동
 
-이후 실행 시 저장된 토큰을 재사용합니다 — `pnpm dev` (또는 `npx cmux-relay-agent`)만 실행하면 브라우저가 바로 터미널로 열립니다.
+이후 실행 시 저장된 토큰을 재사용합니다 — `npx cmux-relay-agent`만 실행하면 브라우저가 바로 터미널로 열립니다.
 
-### 모든 기기에서 접속
-
-페어링 후 터미널이 활성화됩니다:
+모든 기기에서 접속:
 
 ```
-https://cmux.jaz.duckdns.org/s/{sessionId}
+https://cmux.jaz.duckdns.org
 ```
 
-휴대폰, 태블릿, 어떤 브라우저에서든 이 URL을 열면 됩니다. 이미 로그인한 상태면 루트 URL(`https://cmux.jaz.duckdns.org`)에서 자동으로 활성 세션으로 이동합니다.
+**필요한 것:** cmux, Node.js 20+. 그 외에는 아무것도 필요 없습니다.
 
-### 로컬 모드
+### 2. 로컬 모드 (LAN 직접 연결)
 
-클라우드 릴레이 없이 LAN에서 직접 실행:
+클라우드 릴레이 없이 실행합니다. 에이전트가 로컬 WebSocket 서버를 시작하며, 같은 네트워크 내에서만 동작합니다.
 
 ```bash
+# 소스에서 실행
+git clone https://github.com/pallidev/cmux-relay.git
+cd cmux-relay
+pnpm install
 pnpm dev -- --local --port 8080
 ```
 
-## 동작 원리
+같은 네트워크의 브라우저에서 `ws://<Mac-IP>:8080`을 엽니다.
+
+**필요한 것:** cmux, Node.js 20+, pnpm. 인터넷 연결 불필요.
+
+### 3. 셀프 호스팅 (자체 릴레이 서버)
+
+자체 릴레이 서버를 운영합니다. 팀, 사설 네트워크, 커스텀 도메인에 적합합니다.
+
+```bash
+# 클론 및 빌드
+git clone https://github.com/pallidev/cmux-relay.git
+cd cmux-relay
+pnpm install
+
+# shared 패키지를 먼저 빌드
+pnpm --filter @cmux-relay/shared build
+
+# 릴레이 서버 시작
+cd packages/relay && npx tsx src/index.ts
+```
+
+릴레이 서버에 필요한 것:
+
+- **GitHub OAuth 앱** — `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` 환경변수 설정
+- **리버스 프록시** — nginx 등으로 TLS(WSS) 및 라우팅 처리
+- **SQLite** — 사용자/토큰 저장소 (자동 생성)
+
+에이전트를 자체 릴레이에 연결:
+
+```bash
+npx cmux-relay-agent --relay-url wss://your-relay.example.com/ws/agent
+```
+
+또는 기본 릴레이 URL을 변경하여 agent 패키지를 빌드 및 배포합니다.
+
+**필요한 것:** 에이전트 Mac과 클라이언트 브라우저 모두에서 접근 가능한 서버, TLS 인증서.
+
+## 아키텍처
+
+### 클라우드 모드 (기본)
 
 ```
-┌───────────────────────────────────────┐                  ┌──────────────────┐
-│          에이전트 (Mac)                │                  │ 웹 클라이언트      │
-│                                       │                  │ (모든 브라우저)    │
-│  ┌─────────────┐  ┌───────────────┐  │                  │ • xterm.js        │
-│  │ cmux 소켓   │  │ PTY 캡처      │  │   클라우드 릴레이  │ • 모바일 UX       │
-│  │ (JSON-RPC)  │  │ (mkfifo)      │  │ ◄──────────────► │ • 키보드 입력     │
-│  └──────┬──────┘  └───────┬───────┘  │                  └──────────────────┘
-│         │                 │          │
-│         └────┬────────────┘          │
-│              ▼                       │
-│  ┌───────────────────────────────┐   │
-│  │    RelayConnection (WS)       │   │
-│  └───────────────────────────────┘   │
-└───────────────────────────────────────┘
+┌──────────────────────────┐         ┌──────────────────────┐
+│  내 Mac                  │         │  릴레이 서버          │
+│                          │         │  (Mac Mini / VPS)    │
+│  cmux ─소켓─► 에이전트   │  WS     │                      │
+│  (Ghostty)    │          ├────────►│  세션 매칭           │
+│               PTY        │         │  데이터 브릿지        │
+│               캡처       │         │  GitHub OAuth        │
+│                          │         │  SQLite              │
+└──────────────────────────┘         └──────┬───────────────┘
+                                            │
+                                     ┌──────▼───────────────┐
+                                     │  웹 클라이언트        │
+                                     │  (모든 브라우저)      │
+                                     │  • xterm.js           │
+                                     │  • 모바일 UX          │
+                                     └──────────────────────┘
 ```
 
-에이전트가 릴레이 서버로 아웃바운드 연결 — 인바운드 포트 불필요. 릴레이가 에이전트 ↔ 웹 클라이언트 연결을 브릿지합니다.
+에이전트가 릴레이 서버로 아웃바운드 연결합니다 — Mac에 인바운드 포트가 필요 없습니다. 릴레이가 에이전트와 웹 클라이언트 연결을 브릿지합니다.
+
+### 로컬 모드
+
+```
+┌──────────────────────────┐         ┌──────────────────────┐
+│  내 Mac                  │         │  브라우저 (LAN)      │
+│                          │         │                      │
+│  cmux ─소켓─► 에이전트   │  WS     │  ws://mac-ip:8080    │
+│  (Ghostty)    │          ├────────►│                      │
+│               PTY        │         │                      │
+│               캡처       │         │                      │
+└──────────────────────────┘         └──────────────────────┘
+```
+
+릴레이 서버 없이 에이전트가 직접 WebSocket 서버를 실행합니다. 같은 네트워크에서만 동작합니다.
+
+## 패키지 구조
+
+```
+cmux-relay/
+├── packages/
+│   ├── shared/     # 프로토콜 타입 및 메시지 정의 (의존성 없음)
+│   ├── agent/      # Mac에서 실행 — cmux 클라이언트 + PTY 캡처 + 릴레이 연결
+│   ├── relay/      # 서버에서 실행 — 세션 매칭 + 인증 + 데이터 브릿지
+│   └── web/        # React + xterm.js 웹 클라이언트
+├── tests/          # 통합 테스트
+└── package.json    # pnpm 워크스페이스 루트
+```
+
+| 사용자 유형 | 필요한 패키지 |
+|---|---|
+| 에이전트 사용자 (`npx cmux-relay-agent`) | `agent` (npm 배포, `shared` 포함) |
+| 로컬 모드 (`--local`) | `agent` + `shared` (소스에서) |
+| 셀프 호스팅 | 전체 패키지 (`agent` + `relay` + `web` + `shared`) |
 
 ## 기능
 
@@ -129,7 +197,8 @@ pnpm dev -- --local --port 8080
 ## CLI 옵션
 
 ```bash
-pnpm dev -- [옵션]
+npx cmux-relay-agent [옵션]
+# 또는 소스에서: pnpm dev -- [옵션]
 ```
 
 | 플래그 | 환경변수 | 기본값 | 설명 |
@@ -142,19 +211,6 @@ pnpm dev -- [옵션]
 | `--socket` | `CMUX_SOCKET_PATH` | `/tmp/cmux.sock` | cmux Unix 소켓 경로 |
 | `--tls-cert` | `CMUX_RELAY_TLS_CERT` | — | TLS 인증서 파일 |
 | `--tls-key` | `CMUX_RELAY_TLS_KEY` | — | TLS 개인키 파일 |
-
-## 프로젝트 구조
-
-```
-cmux-relay/
-├── packages/
-│   ├── shared/     # 프로토콜 타입 및 메시지 정의 (의존성 없음)
-│   ├── agent/      # 에이전트 — cmux 클라이언트 + PTY 캡처 + 릴레이 연결
-│   ├── relay/      # 릴레이 서버 — 세션 매칭 + 인증 + 데이터 브릿지
-│   └── web/        # React + xterm.js 웹 클라이언트
-├── tests/          # 통합 테스트
-└── package.json    # pnpm 워크스페이스 루트
-```
 
 ## 개발
 

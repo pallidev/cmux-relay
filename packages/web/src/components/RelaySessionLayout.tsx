@@ -18,9 +18,9 @@ export function RelaySessionLayout({ sessionId }: { sessionId: string }) {
     return <LoginPage />;
   }
 
-  if (isMobile) return <MobileLayout />;
-
   const wsUrl = `${getRelayWsUrl()}/ws/client?session=${sessionId}&token=${encodeURIComponent(jwt)}`;
+
+  if (isMobile) return <MobileLayout relayWsUrl={wsUrl} />;
 
   return <RelaySessionInner wsUrl={wsUrl} />;
 }

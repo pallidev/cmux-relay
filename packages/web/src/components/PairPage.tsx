@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { LoginPage } from './LoginPage';
 
 export function PairPage({ code }: { code: string }) {
@@ -6,91 +6,77 @@ export function PairPage({ code }: { code: string }) {
     const match = document.cookie.match(/(?:^|;\s*)relay_jwt=([^;]+)/);
     return match ? match[1] : null;
   });
-  const [exists, setExists] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [approving, setApproving] = useState(false);
-  const [done, setDone] = useState(false);
   const [error, setError] = useState('');
+  const autoApproved = useRef(false);
 
+  // 로그인 + 페어링 존재 확인 → 자동 승인 → 세션 대기 → 터미널 이동
   useEffect(() => {
-    fetch(`/api/pair/${code}`)
-      .then(res => res.json())
-      .then(data => {
-        setExists(data.exists);
-        setLoading(false);
-      })
-      .catch(() => {
-        setError('Failed to check pairing status');
-        setLoading(false);
-      });
-  }, [code]);
+    if (!jwt || autoApproved.current) return;
+
+    (async () => {
+      try {
+        const checkRes = await fetch(`/api/pair/${code}`);
+        const checkData = await checkRes.json();
+        if (!checkData.exists) {
+          setError('This pairing code is invalid or has expired.');
+          return;
+        }
+
+        autoApproved.current = true;
+        const approveRes = await fetch(`/api/pair/${code}/approve`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${jwt}` },
+        });
+        if (!approveRes.ok) {
+          setError('Failed to approve pairing');
+          return;
+        }
+
+        // 세션 생성 대기 후 터미널로 이동
+        for (let i = 0; i < 15; i++) {
+          await new Promise(r => setTimeout(r, 1000));
+          try {
+            const res = await fetch('/api/sessions', {
+              headers: { Authorization: `Bearer ${jwt}` },
+            });
+            if (res.ok) {
+              const data = await res.json();
+              const sessions = Array.isArray(data) ? data : data.sessions;
+              if (sessions?.length > 0) {
+                window.location.href = `/s/${sessions[0].sessionId}`;
+                return;
+              }
+            }
+          } catch { /* retry */ }
+        }
+        window.location.href = '/';
+      } catch {
+        setError('Connection failed');
+      }
+    })();
+  }, [jwt, code]);
 
   if (!jwt) {
     return <LoginPage pairCode={code} />;
   }
 
-  const handleApprove = async () => {
-    setApproving(true);
-    setError('');
-    try {
-      const res = await fetch(`/api/pair/${code}/approve`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${jwt}` },
-      });
-      if (res.ok) {
-        setDone(true);
-      } else {
-        setError('Failed to approve pairing');
-      }
-    } catch {
-      setError('Network error');
-    }
-    setApproving(false);
-  };
+  if (error) {
+    return (
+      <div className="login-screen">
+        <div className="dashboard-card" style={{ maxWidth: 400, textAlign: 'center' }}>
+          <h1 style={{ marginBottom: '1rem' }}>Agent Pairing</h1>
+          <p className="dashboard-error">{error}</p>
+          <p className="dashboard-hint">Try running the agent command again.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="login-screen">
       <div className="dashboard-card" style={{ maxWidth: 400, textAlign: 'center' }}>
-        <h1 style={{ marginBottom: '1rem' }}>Agent Pairing</h1>
-
-        {loading && <p>Checking pairing request...</p>}
-
-        {error && <p className="dashboard-error">{error}</p>}
-
-        {!loading && !exists && (
-          <div>
-            <p className="dashboard-error">This pairing code is invalid or has expired.</p>
-            <p className="dashboard-hint">Try running the agent command again.</p>
-          </div>
-        )}
-
-        {!loading && exists && !done && (
-          <div>
-            <p style={{ marginBottom: '0.5rem', color: 'var(--text-sub)' }}>
-              Code: <strong style={{ color: 'var(--text)', letterSpacing: '0.1em', fontSize: '1.2rem' }}>{code}</strong>
-            </p>
-            <p className="dashboard-hint" style={{ marginBottom: '1.5rem' }}>
-              Allow this agent to connect to your account?
-            </p>
-            <button
-              className="token-create"
-              style={{ width: '100%', justifyContent: 'center', cursor: approving ? 'wait' : 'pointer' }}
-              onClick={handleApprove}
-              disabled={approving}
-            >
-              {approving ? 'Approving...' : 'Allow Agent'}
-            </button>
-          </div>
-        )}
-
-        {!loading && exists && done && (
-          <div>
-            <p style={{ color: 'var(--green)', fontSize: '1.1rem', marginBottom: '0.5rem' }}>
-              Agent linked successfully!
-            </p>
-            <p className="dashboard-hint">You can close this page.</p>
-          </div>
-        )}
+        <h1 style={{ marginBottom: '1rem' }}>Connecting...</h1>
+        <p className="dashboard-hint">Setting up your terminal session</p>
       </div>
     </div>
   );

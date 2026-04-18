@@ -6,7 +6,7 @@ import type { CmuxNotification } from '@cmux-relay/shared';
 
 const RELAY_URL = getRelayWsUrl();
 
-export function MobileLayout() {
+export function MobileLayout({ relayWsUrl }: { relayWsUrl?: string }) {
   const [token, setToken] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     const urlToken = params.get('token');
@@ -17,9 +17,11 @@ export function MobileLayout() {
     }
     return localStorage.getItem('cmux-relay-token') || '';
   });
-  const [submitted, setSubmitted] = useState(() => !!localStorage.getItem('cmux-relay-token'));
+  const [submitted, setSubmitted] = useState(() => !!localStorage.getItem('cmux-relay-token') || !!relayWsUrl);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
   const [selectedSurfaceId, setSelectedSurfaceId] = useState<string | null>(null);
+
+  const relayUrl = relayWsUrl || (submitted ? RELAY_URL : '');
 
   const {
     status,
@@ -31,7 +33,7 @@ export function MobileLayout() {
     sendInput,
     sendResize,
     onOutput,
-  } = useRelay(submitted ? { url: RELAY_URL, token } : { url: '' });
+  } = useRelay(relayUrl ? { url: relayUrl } : { url: '' });
 
   const [toasts, setToasts] = useState<CmuxNotification[]>([]);
   const prevNotifCount = useRef(0);

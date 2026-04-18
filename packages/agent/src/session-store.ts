@@ -123,6 +123,14 @@ export class SessionStore {
     return this.clients.get(clientId)?.activeSurfaceId ?? null;
   }
 
+  getActiveSurfaceIds(): Set<string> {
+    const ids = new Set<string>();
+    for (const client of this.clients.values()) {
+      if (client.activeSurfaceId) ids.add(client.activeSurfaceId);
+    }
+    return ids;
+  }
+
   // ─── Notifications ───
 
   updateNotifications(notifications: CmuxNotification[]): void {

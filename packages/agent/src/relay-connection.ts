@@ -1,7 +1,7 @@
 import WebSocket from 'ws';
 import { encodeMessage, decodeMessage } from '@cmux-relay/shared';
 import type { AgentOutgoing, RelayToAgent, ClientOutgoing, RelayToClient } from '@cmux-relay/shared';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 
 type ClientDataHandler = (msg: ClientOutgoing) => void;
 
@@ -228,8 +228,9 @@ export class RelayConnection {
 
 function openUrl(url: string): void {
   try {
-    const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
-    execSync(`${cmd} "${url}"`, { stdio: 'ignore' });
+    const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open';
+    const args = process.platform === 'win32' ? ['/c', 'start', '""', url] : [url];
+    execFileSync(cmd, args, { stdio: 'ignore' });
   } catch {
     // Browser open failed, user can copy the URL manually
   }

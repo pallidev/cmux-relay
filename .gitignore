@@ -3,6 +3,16 @@ dist/
 *.tsbuildinfo
 .DS_Store
 
+# Environment / secrets
+.env
+.env.*
+package-lock.json
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
 # IDE / AI tool configs
 .claude/
 .agents/

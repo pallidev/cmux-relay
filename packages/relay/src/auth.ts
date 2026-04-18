@@ -3,7 +3,8 @@ import { SignJWT, jwtVerify } from 'jose';
 const JWT_ALG = 'HS256';
 
 export function getJwtSecret(): Uint8Array {
-  const secret = process.env.RELAY_JWT_SECRET || 'cmux-relay-dev-secret';
+  const secret = process.env.RELAY_JWT_SECRET;
+  if (!secret) throw new Error('RELAY_JWT_SECRET environment variable is required');
   return new TextEncoder().encode(secret);
 }
 

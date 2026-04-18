@@ -375,7 +375,7 @@ async function runCloudMode(savedAuth: AuthData | null) {
   const webUrl = process.env.CMUX_WEB_URL || 'https://cmux.jaz.duckdns.org';
   const sessionUrl = `${webUrl}/s/${sessionId}`;
   console.log(`\n  Session ready: ${sessionUrl}\n`);
-  openUrl(sessionUrl);
+  openUrl(webUrl);
 
   // Broadcast via relay instead of direct WebSocket
   const broadcastViaRelay = (msg: RelayToClient) => {

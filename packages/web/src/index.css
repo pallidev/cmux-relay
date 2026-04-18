@@ -1036,8 +1036,50 @@ html, body, #root {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.5rem 0;
+  padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--bg-surface0);
+  gap: 1rem;
+}
+
+.session-item {
+  background: var(--bg-surface0);
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+  border: none;
+  padding: 1rem;
+}
+
+.session-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.session-id {
+  font-family: monospace;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.session-connect-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1rem;
+  background: var(--blue);
+  color: var(--bg-base);
+  border: none;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.session-connect-btn:hover {
+  opacity: 0.9;
+  text-decoration: none;
 }
 
 .session-link {

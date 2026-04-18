@@ -35,19 +35,6 @@ function HomePage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => {
-    if (!jwt) return;
-    fetch('/api/sessions', { headers: { Authorization: `Bearer ${jwt}` } })
-      .then(res => res.ok ? res.json() : [])
-      .then(data => {
-        const sessions = Array.isArray(data) ? data : data.sessions;
-        if (sessions?.length > 0) {
-          window.location.replace(`/s/${sessions[0].sessionId}`);
-        }
-      })
-      .catch(() => {});
-  }, [jwt]);
-
   if (loading) return null;
   if (!jwt) return <LoginPage />;
   return <DashboardPage jwt={jwt} />;

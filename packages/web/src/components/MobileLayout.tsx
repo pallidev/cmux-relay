@@ -227,6 +227,7 @@ export function MobileLayout({ relayWsUrl }: { relayWsUrl?: string }) {
           >
             &#8250;
           </button>
+          <a href="/" className="dashboard-btn" title="Dashboard">&#x2302;</a>
         </header>
 
         {/* Tab bar: surfaces in current workspace */}

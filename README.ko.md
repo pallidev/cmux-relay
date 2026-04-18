@@ -66,7 +66,7 @@ pnpm install
 pnpm dev -- --local --port 8080
 ```
 
-같은 네트워크의 브라우저에서 `ws://<Mac-IP>:8080`을 엽니다.
+같은 네트워크의 브라우저에서 `http://<Mac-IP>:8080`을 엽니다.
 
 **필요한 것:** cmux, Node.js 20+, pnpm. 인터넷 연결 불필요.
 
@@ -190,7 +190,7 @@ cmux-relay/
 ### 보안
 
 - **GitHub OAuth** — GitHub 계정으로 로그인
-- **JWT 세션** — HttpOnly 쿠키 기반 인증
+- **JWT 세션** — 쿠키 기반 인증 (30일 만료)
 - **API 토큰** — SHA-256 해시, 페어링 시 자동 생성
 - **TLS** — 종단간 HTTPS/WSS
 
@@ -208,7 +208,7 @@ npx cmux-relay-agent [옵션]
 | `--local` | — | — | 로컬 모드 실행 (직접 WebSocket) |
 | `--port` | `CMUX_RELAY_PORT` | `8080` | 로컬 모드 서버 포트 |
 | `--host` | `CMUX_RELAY_HOST` | `0.0.0.0` | 로컬 모드 바인드 주소 |
-| `--socket` | `CMUX_SOCKET_PATH` | `/tmp/cmux.sock` | cmux Unix 소켓 경로 |
+| `--socket` | `CMUX_SOCKET_PATH` | `~/Library/Application Support/cmux/cmux.sock` | cmux Unix 소켓 경로 |
 | `--tls-cert` | `CMUX_RELAY_TLS_CERT` | — | TLS 인증서 파일 |
 | `--tls-key` | `CMUX_RELAY_TLS_KEY` | — | TLS 개인키 파일 |
 

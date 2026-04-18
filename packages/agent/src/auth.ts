@@ -1,7 +1,9 @@
 import jwt from 'jsonwebtoken';
 
 function getSecret(): string {
-  return process.env.CMUX_RELAY_JWT_SECRET || 'cmux-relay-dev-secret';
+  const secret = process.env.CMUX_RELAY_JWT_SECRET;
+  if (!secret) throw new Error('CMUX_RELAY_JWT_SECRET environment variable is required');
+  return secret;
 }
 
 export function generateToken(): string {

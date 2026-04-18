@@ -10,12 +10,13 @@ import type { MessageHandlerDeps } from './message-handler.js';
 import type { WorkspaceInfo, SurfaceInfo, PaneInfo, RelayToClient } from '@cmux-relay/shared';
 import { readFile, writeFile, unlink, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 
 function openUrl(url: string): void {
   try {
-    const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
-    execSync(`${cmd} "${url}"`, { stdio: 'ignore' });
+    const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open';
+    const args = process.platform === 'win32' ? ['/c', 'start', '""', url] : [url];
+    execFileSync(cmd, args, { stdio: 'ignore' });
   } catch {}
 }
 import { homedir } from 'node:os';
@@ -73,8 +74,8 @@ const PID_FILE = `${process.env.HOME}/.cmux-relay.pid`;
 
 function killStaleProcesses(): void {
   try {
-    const out = execSync(
-      `pgrep -f "cmux-relay.*(tsx|src/index)" || true`,
+    const out = execFileSync(
+      'pgrep', ['-f', 'cmux-relay.*(tsx|src/index)'],
       { encoding: 'utf-8' }
     ).trim();
     if (!out) return;
@@ -88,15 +89,12 @@ function killStaleProcesses(): void {
         // Already dead
       }
     }
-    if (pids.length > 0) {
-      execSync('sleep 1');
-    }
   } catch {
     // pgrep not available or no matches
   }
 
   try {
-    execSync(`pkill -f "cat /var/folders.*cmux-relay" 2>/dev/null || true`);
+    execFileSync('pkill', ['-f', 'cat /var/folders.*cmux-relay'], { stdio: 'ignore' });
   } catch {
     // Ignore
   }

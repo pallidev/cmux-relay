@@ -1,6 +1,7 @@
 import WebSocket from 'ws';
 import { encodeMessage, decodeMessage } from '@cmux-relay/shared';
 import type { AgentOutgoing, RelayToAgent, ClientOutgoing, RelayToClient } from '@cmux-relay/shared';
+import { execSync } from 'node:child_process';
 
 type ClientDataHandler = (msg: ClientOutgoing) => void;
 
@@ -59,6 +60,7 @@ export class RelayConnection {
           console.log(`\n  Open this URL to link your agent:\n`);
           console.log(`    ${msg.url}\n`);
           console.log(`  Waiting for approval...`);
+          openUrl(msg.url);
         } else if (msg.type === 'pairing.approved') {
           console.log(`[agent] Pairing approved! Token received.`);
           this.apiToken = msg.token;
@@ -221,5 +223,14 @@ export class RelayConnection {
         this.scheduleReconnect();
       }
     }, this.reconnectDelay);
+  }
+}
+
+function openUrl(url: string): void {
+  try {
+    const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
+    execSync(`${cmd} "${url}"`, { stdio: 'ignore' });
+  } catch {
+    // Browser open failed, user can copy the URL manually
   }
 }

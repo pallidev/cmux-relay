@@ -37,10 +37,11 @@ export async function handleHttpRequest(
 
     const user = await handleCallback(db, code);
     const jwt = await createSessionJwt(user.id, user.username);
+    console.log(`[relay] OAuth callback success: user=${user.username} jwt=${jwt.slice(0, 20)}...`);
 
     res.writeHead(302, {
       Location: `${WEB_URL}/`,
-      'Set-Cookie': `relay_jwt=${jwt}; Path=/; Secure; SameSite=Lax; Max-Age=${30 * 24 * 60 * 60}`,
+      'Set-Cookie': `relay_jwt=${jwt}; Path=/; SameSite=Lax; Max-Age=${30 * 24 * 60 * 60}`,
     });
     res.end();
     return;

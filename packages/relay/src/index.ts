@@ -4,6 +4,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { initDatabase } from './db.js';
 import { SessionRegistry } from './session-registry.js';
+import { PairingRegistry } from './pairing-registry.js';
 import { handleHttpRequest } from './http-handler.js';
 import { createWsHandler, handleUpgrade } from './ws-handler.js';
 
@@ -31,13 +32,15 @@ try {
 const PORT = parseInt(process.env.RELAY_PORT ?? '3001', 10);
 const HOST = process.env.RELAY_HOST ?? '0.0.0.0';
 const DB_PATH = process.env.RELAY_DB_PATH ?? './relay.db';
+const WEB_URL = process.env.WEB_URL || 'https://cmux.jaz.duckdns.org';
 
 const db = initDatabase(DB_PATH);
 const registry = new SessionRegistry();
-const wss = createWsHandler(db, registry);
+const pairing = new PairingRegistry(WEB_URL);
+const wss = createWsHandler(db, registry, pairing);
 
 const server = createServer((req, res) => {
-  handleHttpRequest(req, res, db, registry).catch((err) => {
+  handleHttpRequest(req, res, db, registry, pairing).catch((err) => {
     console.error('[relay] HTTP error:', err);
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Internal server error' }));
@@ -45,7 +48,7 @@ const server = createServer((req, res) => {
 });
 
 server.on('upgrade', (req, socket, head) => {
-  handleUpgrade(req, db, registry, wss, () => {});
+  handleUpgrade(req, db, registry, pairing, wss, () => {});
 });
 
 server.listen(PORT, HOST, () => {

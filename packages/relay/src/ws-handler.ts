@@ -1,16 +1,23 @@
 import type { IncomingMessage } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { SessionRegistry } from './session-registry.js';
+import type { PairingRegistry } from './pairing-registry.js';
 import { validateApiToken } from './db.js';
 import { verifySessionJwt } from './auth.js';
+import { encodeMessage, decodeMessage } from '@cmux-relay/shared';
+import type { AgentOutgoing } from '@cmux-relay/shared';
 import type Database from 'better-sqlite3';
 
-export function createWsHandler(db: Database.Database, registry: SessionRegistry): WebSocketServer {
+export function createWsHandler(
+  db: Database.Database,
+  registry: SessionRegistry,
+  pairing: PairingRegistry,
+): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
 
   wss.on('connection', (ws: WebSocket, req: IncomingMessage, type: 'agent' | 'client', params: URLSearchParams) => {
     if (type === 'agent') {
-      handleAgentConnection(ws, req, db, registry, params);
+      handleAgentConnection(ws, req, db, registry, pairing, params);
     } else {
       handleClientConnection(ws, req, db, registry, params);
     }
@@ -24,22 +31,39 @@ function handleAgentConnection(
   _req: IncomingMessage,
   db: Database.Database,
   registry: SessionRegistry,
+  pairing: PairingRegistry,
   params: URLSearchParams,
 ): void {
   const token = params.get('token');
-  if (!token) {
-    ws.close(1008, 'Missing token');
-    return;
+
+  if (token) {
+    // Existing token — register agent
+    const user = validateApiToken(db, token);
+    if (!user) {
+      ws.close(1008, 'Invalid token');
+      return;
+    }
+    registry.registerAgent(user.id, ws);
+    setupAgentHandlers(ws, registry, pairing);
+  } else {
+    // No token — wait for pairing message
+    ws.on('message', (raw) => {
+      const data = typeof raw === 'string' ? raw : raw.toString('utf-8');
+      const msg = decodeMessage<AgentOutgoing>(data);
+
+      if (msg.type === 'agent.pair') {
+        const { code, url } = pairing.createPairing(ws);
+        ws.send(encodeMessage({ type: 'pairing.wait', code, url }));
+        // Keep connection open, wait for approval via HTTP
+        setupAgentHandlers(ws, registry, pairing);
+      } else if (msg.type === 'agent.register') {
+        ws.close(1008, 'Token required for registration');
+      }
+    });
   }
+}
 
-  const user = validateApiToken(db, token);
-  if (!user) {
-    ws.close(1008, 'Invalid token');
-    return;
-  }
-
-  registry.registerAgent(user.id, ws);
-
+function setupAgentHandlers(ws: WebSocket, registry: SessionRegistry, pairing: PairingRegistry): void {
   ws.on('message', (raw) => {
     const data = typeof raw === 'string' ? raw : raw.toString('utf-8');
     registry.handleAgentMessage(ws, data);
@@ -47,11 +71,13 @@ function handleAgentConnection(
 
   ws.on('close', () => {
     registry.disconnectAgent(ws);
+    pairing.removeByWs(ws);
   });
 
   ws.on('error', (err) => {
     console.error(`[relay] Agent WS error:`, err.message);
     registry.disconnectAgent(ws);
+    pairing.removeByWs(ws);
   });
 }
 
@@ -109,6 +135,7 @@ export function handleUpgrade(
   req: IncomingMessage,
   db: Database.Database,
   registry: SessionRegistry,
+  pairing: PairingRegistry,
   wss: WebSocketServer,
   callback: (ws: WebSocket) => void,
 ): void {

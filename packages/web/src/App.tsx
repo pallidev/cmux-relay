@@ -35,7 +35,7 @@ export default function App() {
 }
 
 function TerminalPage() {
-  const [jwt, setJwt] = useState<string | null>(() => {
+  const [jwt] = useState<string | null>(() => {
     const match = document.cookie.match(/(?:^|;\s*)relay_jwt=([^;]+)/);
     return match ? match[1] : null;
   });
@@ -45,26 +45,26 @@ function TerminalPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (sessionId) {
-      setLoading(false);
-      return;
-    }
-    if (!jwt) {
-      setLoading(false);
-      return;
-    }
-    fetch('/api/sessions', { headers: { Authorization: `Bearer ${jwt}` } })
-      .then(res => res.ok ? res.json() : [])
-      .then(data => {
-        const sessions = Array.isArray(data) ? data : [];
-        if (sessions.length > 0) {
-          const id = sessions[0].sessionId;
-          localStorage.setItem('cmux-session-id', id);
-          setSessionId(id);
-        }
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+    if (!jwt) { setLoading(false); return; }
+
+    const poll = () => {
+      fetch('/api/sessions', { headers: { Authorization: `Bearer ${jwt}` } })
+        .then(res => res.ok ? res.json() : [])
+        .then(data => {
+          const sessions = Array.isArray(data) ? data : [];
+          const latest = sessions.length > 0 ? sessions[0].sessionId : null;
+          if (latest && latest !== sessionId) {
+            localStorage.setItem('cmux-session-id', latest);
+            setSessionId(latest);
+          }
+          setLoading(false);
+        })
+        .catch(() => setLoading(false));
+    };
+
+    poll();
+    const interval = setInterval(poll, 5000);
+    return () => clearInterval(interval);
   }, [jwt, sessionId]);
 
   if (!jwt) return <LoginPage />;
@@ -73,7 +73,7 @@ function TerminalPage() {
     window.location.href = '/';
     return null;
   }
-  return <RelaySessionLayout sessionId={sessionId} />;
+  return <RelaySessionLayout key={sessionId} sessionId={sessionId} />;
 }
 
 function HomePage() {

@@ -4,7 +4,6 @@ import { useMobile } from '../hooks/useMobile';
 import { MobileLayout } from './MobileLayout';
 import { Terminal, writeToTerminal } from './Terminal';
 import { getRelayWsUrl, getToastType } from '../lib/helpers';
-import { LoginPage } from './LoginPage';
 import type { PaneInfo, CmuxNotification } from '@cmux-relay/shared';
 
 export function RelaySessionLayout({ sessionId }: { sessionId: string }) {

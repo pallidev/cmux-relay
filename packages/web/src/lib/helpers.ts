@@ -22,15 +22,6 @@ export function getRelayHttpUrl(): string {
   return `${protocol}//${hostname}${port ? ':' + port : ''}`;
 }
 
-export function getSessionIdFromPath(): string | null {
-  const match = window.location.pathname.match(/^\/s\/([a-zA-Z0-9]+)$/);
-  return match ? match[1] : null;
-}
-
-export function isRelayMode(): boolean {
-  return !!getSessionIdFromPath();
-}
-
 export function getToastType(n: CmuxNotification): string {
   const t = (n.title + ' ' + (n.body ?? '')).toLowerCase();
   if (t.includes('error') || t.includes('fail')) return 'error';

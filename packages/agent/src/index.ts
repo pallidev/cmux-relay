@@ -3,8 +3,11 @@ import { PtyCapture } from './pty-capture.js';
 import { InputHandler } from './input-handler.js';
 import { SessionStore } from './session-store.js';
 import { createWSServer } from './ws-server.js';
+import { RelayConnection } from './relay-connection.js';
+import { handleClientMessage } from './message-handler.js';
 import type { ServerDeps, TlsOptions } from './ws-server.js';
-import type { WorkspaceInfo, SurfaceInfo, PaneInfo, CmuxNotification } from '@cmux-relay/shared';
+import type { MessageHandlerDeps } from './message-handler.js';
+import type { WorkspaceInfo, SurfaceInfo, PaneInfo, RelayToClient } from '@cmux-relay/shared';
 import { readFile, writeFile, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { execSync } from 'node:child_process';
@@ -15,6 +18,8 @@ const host = getArg('--host') || process.env.CMUX_RELAY_HOST || '0.0.0.0';
 const cmuxSocket = getArg('--socket') || '';
 const tlsCert = getArg('--tls-cert') || process.env.CMUX_RELAY_TLS_CERT || '';
 const tlsKey = getArg('--tls-key') || process.env.CMUX_RELAY_TLS_KEY || '';
+const apiToken = getArg('--token') || process.env.CMUX_RELAY_TOKEN || '';
+const relayUrl = getArg('--relay-url') || process.env.CMUX_RELAY_URL || '';
 
 function getArg(name: string): string {
   const idx = args.indexOf(name);
@@ -40,7 +45,6 @@ const PID_FILE = `${process.env.HOME}/.cmux-relay.pid`;
 
 function killStaleProcesses(): void {
   try {
-    // Kill all orphaned cmux-relay server processes (tsx watch, node src/index.ts)
     const out = execSync(
       `pgrep -f "cmux-relay.*(tsx|src/index)" || true`,
       { encoding: 'utf-8' }
@@ -57,14 +61,12 @@ function killStaleProcesses(): void {
       }
     }
     if (pids.length > 0) {
-      // Give processes time to exit
       execSync('sleep 1');
     }
   } catch {
     // pgrep not available or no matches
   }
 
-  // Clean up stale pipe processes
   try {
     execSync(`pkill -f "cat /var/folders.*cmux-relay" 2>/dev/null || true`);
   } catch {
@@ -73,7 +75,6 @@ function killStaleProcesses(): void {
 }
 
 async function ensureSingleInstance(): Promise<void> {
-  // First, kill any stale processes we can find
   killStaleProcesses();
 
   if (!existsSync(PID_FILE)) {
@@ -88,9 +89,8 @@ async function ensureSingleInstance(): Promise<void> {
   }
 
   try {
-    process.kill(existingPid, 0); // Check if process is alive
+    process.kill(existingPid, 0);
   } catch {
-    // Stale PID file — process is dead
     await writeFile(PID_FILE, `${process.pid}`);
     return;
   }
@@ -99,7 +99,6 @@ async function ensureSingleInstance(): Promise<void> {
   process.kill(existingPid, 'SIGTERM');
   await new Promise(r => setTimeout(r, 2000));
 
-  // Verify it stopped
   try {
     process.kill(existingPid, 0);
     console.log(`Force killing PID ${existingPid}...`);
@@ -113,8 +112,18 @@ async function ensureSingleInstance(): Promise<void> {
 }
 
 async function main() {
+  const isCloudMode = !!apiToken;
+
+  if (isCloudMode) {
+    await runCloudMode();
+  } else {
+    await runLocalMode();
+  }
+}
+
+async function runLocalMode() {
   await ensureSingleInstance();
-  console.log('cmux-relay server starting...');
+  console.log('cmux-relay agent starting (local mode)...');
 
   const store = new SessionStore();
   const deps: ServerDeps = {
@@ -143,10 +152,8 @@ async function main() {
   }
 
   await connectWithRetry(cmux);
-
   deps.cmux = cmux;
 
-  // Sync workspaces + surfaces periodically
   const syncAll = async () => {
     try {
       if (!cmux.isConnected()) {
@@ -177,7 +184,6 @@ async function main() {
         payload: { workspaces: store.getAllWorkspaces() },
       });
 
-      // Sync pane layout for EACH workspace
       for (const w of workspaces) {
         try {
           const { panes, containerFrame } = await cmux.listPanes(w.id);
@@ -200,10 +206,8 @@ async function main() {
     }
   };
 
-  // Initial sync immediately after connecting
   await syncAll();
 
-  // Initial notification poll BEFORE starting server so clients get data on auth
   const knownNotificationIds = new Set<string>();
   const pollNotifications = async () => {
     try {
@@ -211,7 +215,6 @@ async function main() {
       const notifications = await cmux.listNotifications();
       const newNotifications = notifications.filter(n => !knownNotificationIds.has(n.id));
 
-      // Update known set to current snapshot
       knownNotificationIds.clear();
       for (const n of notifications) {
         knownNotificationIds.add(n.id);
@@ -221,7 +224,6 @@ async function main() {
         console.log(`New cmux notifications: ${newNotifications.map(n => n.title).join(', ')}`);
       }
 
-      // Always update store so new clients get current notifications on auth
       store.updateNotifications(notifications);
       if (newNotifications.length > 0) {
         store.broadcastToClients({
@@ -235,12 +237,10 @@ async function main() {
   };
   await pollNotifications();
 
-  // NOW start the server — store is fully populated
   const wss = await createWSServer(port, host, deps, await loadTlsOptions());
 
   const syncInterval = setInterval(syncAll, 5000);
 
-  // PTY capture
   const ptyCapture = new PtyCapture((chunk) => {
     const data = chunk.toString('base64');
     store.sendToClientsWithSurface('default', {
@@ -258,7 +258,6 @@ async function main() {
     console.log('Continuing without PTY capture (cmux socket API only)');
   }
 
-  // Poll terminal text per surface (only send when changed)
   const lastOutput = new Map<string, string>();
   const pollTerminal = async () => {
     try {
@@ -288,13 +287,9 @@ async function main() {
     }
   };
   const pollInterval = setInterval(pollTerminal, 1000);
-  process.on('exit', () => clearInterval(pollInterval));
 
-  // Start notification polling (initial poll already done above)
   const notificationPollInterval = setInterval(pollNotifications, 2000);
-  process.on('exit', () => clearInterval(notificationPollInterval));
 
-  // Graceful shutdown
   const shutdown = () => {
     console.log('\nShutting down...');
     clearInterval(syncInterval);
@@ -304,6 +299,163 @@ async function main() {
     wss.close();
     cmux.disconnect();
     unlink(PID_FILE).catch(() => {});
+    process.exit(0);
+  };
+
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+}
+
+async function runCloudMode() {
+  console.log('cmux-relay agent starting (cloud mode)...');
+
+  const store = new SessionStore();
+  const cmux = new CmuxClient(cmuxSocket || undefined);
+  const inputHandler = new InputHandler(cmux);
+
+  const msgDeps: MessageHandlerDeps = {
+    store,
+    inputHandler,
+    cmux: undefined,
+  };
+
+  await connectWithRetry(cmux);
+  msgDeps.cmux = cmux;
+
+  const relay = new RelayConnection(relayUrl, apiToken);
+
+  relay.onClientData(async (msg) => {
+    const clientId = 'cloud-client';
+    await handleClientMessage(
+      JSON.stringify(msg),
+      clientId,
+      msgDeps,
+      (response) => relay.send(response),
+    );
+  });
+
+  const sessionId = await relay.connect();
+  const webUrl = process.env.CMUX_WEB_URL || 'https://cmux.jaz.duckdns.org';
+  console.log(`\n  Session ready: ${webUrl}/s/${sessionId}\n`);
+
+  // Broadcast via relay instead of direct WebSocket
+  const broadcastViaRelay = (msg: RelayToClient) => {
+    relay.send(msg);
+  };
+
+  const syncAll = async () => {
+    try {
+      if (!cmux.isConnected()) return;
+
+      const workspaces = await cmux.listWorkspaces();
+      const wsInfos: WorkspaceInfo[] = workspaces.map(w => ({
+        id: w.id,
+        title: w.title,
+      }));
+      store.updateWorkspaces(wsInfos);
+
+      for (const w of workspaces) {
+        const surfaces = await cmux.listSurfaces(w.id);
+        const surfInfos: SurfaceInfo[] = surfaces.map(s => ({
+          id: s.id,
+          title: s.title || '',
+          type: s.type,
+          workspaceId: w.id,
+        }));
+        store.updateSurfaces(w.id, surfInfos);
+      }
+
+      broadcastViaRelay({ type: 'workspaces', payload: { workspaces: store.getAllWorkspaces() } });
+
+      for (const w of workspaces) {
+        try {
+          const { panes, containerFrame } = await cmux.listPanes(w.id);
+          const typedPanes: PaneInfo[] = panes.map(p => ({
+            ...p,
+            workspaceId: w.id,
+          }));
+          store.updatePanesForWorkspace(w.id, typedPanes, containerFrame);
+          broadcastViaRelay({ type: 'panes', workspaceId: w.id, payload: { panes: typedPanes, containerFrame } });
+        } catch (err) {
+          console.error(`Failed to sync panes for workspace ${w.id}:`, err);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to sync:', err);
+    }
+  };
+
+  await syncAll();
+
+  const knownNotificationIds = new Set<string>();
+  const pollNotifications = async () => {
+    try {
+      if (!cmux.isConnected()) return;
+      const notifications = await cmux.listNotifications();
+      const newNotifications = notifications.filter(n => !knownNotificationIds.has(n.id));
+      knownNotificationIds.clear();
+      for (const n of notifications) knownNotificationIds.add(n.id);
+
+      store.updateNotifications(notifications);
+      if (newNotifications.length > 0) {
+        broadcastViaRelay({ type: 'notifications', payload: { notifications: newNotifications } });
+      }
+    } catch {
+      // ignore
+    }
+  };
+  await pollNotifications();
+
+  const syncInterval = setInterval(syncAll, 5000);
+  const notificationPollInterval = setInterval(pollNotifications, 2000);
+
+  const ptyCapture = new PtyCapture((chunk) => {
+    const data = chunk.toString('base64');
+    broadcastViaRelay({ type: 'output', surfaceId: 'default', payload: { data } });
+  });
+
+  try {
+    const capturePath = await ptyCapture.start();
+    console.log(`PTY capture ready: ${capturePath}`);
+  } catch (err) {
+    console.error('PTY capture setup failed:', err);
+    console.log('Continuing without PTY capture (cmux socket API only)');
+  }
+
+  const lastOutput = new Map<string, string>();
+  const pollTerminal = async () => {
+    try {
+      if (!cmux.isConnected()) return;
+      const workspaces = await cmux.listWorkspaces();
+      for (const w of workspaces) {
+        const surfaces = await cmux.listSurfaces(w.id);
+        for (const surf of surfaces) {
+          if (surf.type === 'terminal') {
+            const text = await cmux.readTerminalText(surf.id);
+            if (text) {
+              const b64 = Buffer.from(text).toString('base64');
+              if (lastOutput.get(surf.id) !== b64) {
+                lastOutput.set(surf.id, b64);
+                broadcastViaRelay({ type: 'output', surfaceId: surf.id, payload: { data: b64 } });
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+  };
+  const pollInterval = setInterval(pollTerminal, 1000);
+
+  const shutdown = () => {
+    console.log('\nShutting down...');
+    clearInterval(syncInterval);
+    clearInterval(pollInterval);
+    clearInterval(notificationPollInterval);
+    ptyCapture.stop();
+    relay.disconnect();
+    cmux.disconnect();
     process.exit(0);
   };
 

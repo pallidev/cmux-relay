@@ -85,6 +85,52 @@ export type RelayToClient =
   | RelayNotificationsMessage
   | RelayErrorMessage;
 
+// ─── Agent → Relay ───
+
+export interface AgentRegisterMessage {
+  type: 'agent.register';
+}
+
+export interface AgentDataMessage {
+  type: 'agent.data';
+  payload: RelayToClient;
+}
+
+export interface AgentHeartbeatMessage {
+  type: 'agent.heartbeat';
+}
+
+export type AgentOutgoing =
+  | AgentRegisterMessage
+  | AgentDataMessage
+  | AgentHeartbeatMessage;
+
+// ─── Relay → Agent ───
+
+export interface SessionCreatedMessage {
+  type: 'session.created';
+  sessionId: string;
+}
+
+export interface ClientConnectedMessage {
+  type: 'client.connected';
+}
+
+export interface ClientDisconnectedMessage {
+  type: 'client.disconnected';
+}
+
+export interface ClientDataMessage {
+  type: 'client.data';
+  payload: ClientOutgoing;
+}
+
+export type RelayToAgent =
+  | SessionCreatedMessage
+  | ClientConnectedMessage
+  | ClientDisconnectedMessage
+  | ClientDataMessage;
+
 // ─── Helpers ───
 
 export function encodeMessage(msg: unknown): string {

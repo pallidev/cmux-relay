@@ -66,7 +66,7 @@ pnpm install
 pnpm dev -- --local --port 8080
 ```
 
-Then open `ws://<your-mac-ip>:8080` in a browser on the same network.
+Then open `http://<your-mac-ip>:8080` in a browser on the same network.
 
 **What you need:** cmux, Node.js 20+, pnpm. No internet required.
 
@@ -190,7 +190,7 @@ cmux-relay/
 ### Security
 
 - **GitHub OAuth** — Login with your GitHub account
-- **JWT sessions** — HttpOnly cookie-based auth
+- **JWT sessions** — Cookie-based auth (30-day expiry)
 - **API tokens** — SHA-256 hashed, auto-generated during pairing
 - **TLS** — End-to-end HTTPS/WSS
 
@@ -208,7 +208,7 @@ npx cmux-relay-agent [options]
 | `--local` | — | — | Run in local mode (direct WebSocket) |
 | `--port` | `CMUX_RELAY_PORT` | `8080` | Local mode server port |
 | `--host` | `CMUX_RELAY_HOST` | `0.0.0.0` | Local mode bind address |
-| `--socket` | `CMUX_SOCKET_PATH` | `/tmp/cmux.sock` | cmux Unix socket path |
+| `--socket` | `CMUX_SOCKET_PATH` | `~/Library/Application Support/cmux/cmux.sock` | cmux Unix socket path |
 | `--tls-cert` | `CMUX_RELAY_TLS_CERT` | — | TLS certificate file |
 | `--tls-key` | `CMUX_RELAY_TLS_KEY` | — | TLS private key file |
 

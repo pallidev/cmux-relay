@@ -28,71 +28,139 @@ You run AI coding agents like Claude Code in [cmux](https://github.com/manaflow-
 
 ## Quick Start
 
-### Prerequisites
+There are three ways to use cmux-relay, depending on your needs.
 
-- [cmux](https://github.com/manaflow-ai/cmux) installed and running
-- Node.js 20+
-- pnpm
+### 1. Agent Only (Cloud Relay)
 
-### Install & Run
+The simplest way. Just run the agent on your Mac — it connects to the public cloud relay, and you access your terminal from any device.
 
 ```bash
-# Option 1: One command (recommended)
 npx cmux-relay-agent
-
-# Option 2: From source
-git clone https://github.com/pallidev/cmux-relay.git
-cd cmux-relay
-pnpm install
-pnpm dev
 ```
 
-That's it. The agent will:
+The agent will:
 
 1. Open your browser to a pairing page
 2. Sign in with GitHub (first time only)
 3. Auto-approve and redirect to your live terminal
 
-On subsequent runs, the saved token is reused — just run `pnpm dev` (or `npx cmux-relay-agent`) and the browser opens directly to your terminal.
+On subsequent runs, the saved token is reused — just run `npx cmux-relay-agent` and the browser opens directly to your terminal.
 
-### Access from Any Device
-
-After pairing, your terminal is live at:
+Access from any device at:
 
 ```
-https://cmux.jaz.duckdns.org/s/{sessionId}
+https://cmux.jaz.duckdns.org
 ```
 
-Open this URL on your phone, tablet, or any browser. If you're already logged in, the root URL (`https://cmux.jaz.duckdns.org`) will redirect to your active session automatically.
+**What you need:** cmux, Node.js 20+. Nothing else.
 
-### Local Mode
+### 2. Local Mode (LAN Direct)
 
-To run without the cloud relay (direct WebSocket on your LAN):
+Run without any cloud relay. The agent starts a local WebSocket server — works within your LAN.
 
 ```bash
+# From source
+git clone https://github.com/pallidev/cmux-relay.git
+cd cmux-relay
+pnpm install
 pnpm dev -- --local --port 8080
 ```
 
-## How It Works
+Then open `ws://<your-mac-ip>:8080` in a browser on the same network.
+
+**What you need:** cmux, Node.js 20+, pnpm. No internet required.
+
+### 3. Self-Hosted (Own Relay Server)
+
+Run your own relay server for full control — useful for teams, private networks, or custom domains.
+
+```bash
+# Clone and build
+git clone https://github.com/pallidev/cmux-relay.git
+cd cmux-relay
+pnpm install
+
+# Build shared package first
+pnpm --filter @cmux-relay/shared build
+
+# Start relay server
+cd packages/relay && npx tsx src/index.ts
+```
+
+The relay server needs:
+
+- **GitHub OAuth App** — Set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` env vars
+- **Reverse proxy** — nginx or similar for TLS (WSS) and routing
+- **SQLite** — Auto-created for user/token storage
+
+Then connect agents to your relay:
+
+```bash
+npx cmux-relay-agent --relay-url wss://your-relay.example.com/ws/agent
+```
+
+Or build and publish the agent package with your relay URL as default.
+
+**What you need:** A server reachable from both the agent Mac and client browsers, with TLS.
+
+## Architecture
+
+### Cloud Mode (Default)
 
 ```
-┌───────────────────────────────────────┐                  ┌──────────────────┐
-│          Agent (your Mac)             │                  │ Web Client        │
-│                                       │                  │ (any browser)     │
-│  ┌─────────────┐  ┌───────────────┐  │                  │ • xterm.js        │
-│  │ cmux Socket │  │ PTY Capture   │  │   Cloud Relay    │ • Mobile UX       │
-│  │ (JSON-RPC)  │  │ (mkfifo)      │  │ ◄──────────────► │ • Keyboard input  │
-│  └──────┬──────┘  └───────┬───────┘  │                  └──────────────────┘
-│         │                 │          │
-│         └────┬────────────┘          │
-│              ▼                       │
-│  ┌───────────────────────────────┐   │
-│  │    RelayConnection (WS)       │   │
-│  └───────────────────────────────┘   │
-└───────────────────────────────────────┘
+┌──────────────────────────┐         ┌──────────────────────┐
+│  Your Mac                │         │  Relay Server        │
+│                          │         │  (Mac Mini / VPS)    │
+│  cmux ─socket─► Agent    │  WS     │                      │
+│  (Ghostty)     │         ├────────►│  Session matching    │
+│                PTY       │         │  Data bridge         │
+│                Capture   │         │  GitHub OAuth        │
+│                          │         │  SQLite              │
+└──────────────────────────┘         └──────┬───────────────┘
+                                            │
+                                     ┌──────▼───────────────┐
+                                     │  Web Client           │
+                                     │  (any browser)        │
+                                     │  • xterm.js           │
+                                     │  • Mobile UX          │
+                                     └──────────────────────┘
 ```
 
-The agent connects outbound to the relay server — no inbound ports needed. The relay bridges agent ↔ web client connections.
+The agent connects outbound to the relay — no inbound ports needed on your Mac. The relay bridges agent and web client connections.
+
+### Local Mode
+
+```
+┌──────────────────────────┐         ┌──────────────────────┐
+│  Your Mac                │         │  Browser (LAN)       │
+│                          │         │                      │
+│  cmux ─socket─► Agent    │  WS     │  ws://mac-ip:8080    │
+│  (Ghostty)     │         ├────────►│                      │
+│                PTY       │         │                      │
+│                Capture   │         │                      │
+└──────────────────────────┘         └──────────────────────┘
+```
+
+No relay server — the agent runs its own WebSocket server. Only works on the same network.
+
+## Package Structure
+
+```
+cmux-relay/
+├── packages/
+│   ├── shared/     # Protocol types and message definitions (zero-dependency)
+│   ├── agent/      # Runs on your Mac — cmux client + PTY capture + relay connection
+│   ├── relay/      # Runs on server — session matching + auth + data bridge
+│   └── web/        # React + xterm.js web client
+├── tests/          # Integration tests
+└── package.json    # pnpm workspace root
+```
+
+| Who uses what | Packages needed |
+|---|---|
+| Agent user (`npx cmux-relay-agent`) | `agent` (published to npm, includes `shared`) |
+| Local mode (`--local`) | `agent` + `shared` (from source) |
+| Self-hosted | All packages (`agent` + `relay` + `web` + `shared`) |
 
 ## Features
 
@@ -129,7 +197,8 @@ The agent connects outbound to the relay server — no inbound ports needed. The
 ## CLI Options
 
 ```bash
-pnpm dev -- [options]
+npx cmux-relay-agent [options]
+# or from source: pnpm dev -- [options]
 ```
 
 | Flag | Env Variable | Default | Description |
@@ -142,19 +211,6 @@ pnpm dev -- [options]
 | `--socket` | `CMUX_SOCKET_PATH` | `/tmp/cmux.sock` | cmux Unix socket path |
 | `--tls-cert` | `CMUX_RELAY_TLS_CERT` | — | TLS certificate file |
 | `--tls-key` | `CMUX_RELAY_TLS_KEY` | — | TLS private key file |
-
-## Project Structure
-
-```
-cmux-relay/
-├── packages/
-│   ├── shared/     # Protocol types and message definitions (zero-dependency)
-│   ├── agent/      # Agent — cmux client + PTY capture + relay connection
-│   ├── relay/      # Relay server — session matching + auth + data bridge
-│   └── web/        # React + xterm.js web client
-├── tests/          # Integration tests
-└── package.json    # pnpm workspace root
-```
 
 ## Development
 

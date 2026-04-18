@@ -37,10 +37,14 @@ You run AI coding agents like Claude Code in [cmux](https://github.com/manaflow-
 ### Install & Run
 
 ```bash
+# Option 1: One command (recommended)
+npx @cmux-relay/agent
+
+# Option 2: From source
 git clone https://github.com/pallidev/cmux-relay.git
 cd cmux-relay
 pnpm install
-pnpm dev -- --relay-url wss://relay.jaz.duckdns.org/ws/agent
+pnpm dev
 ```
 
 That's it. The agent will:
@@ -49,7 +53,7 @@ That's it. The agent will:
 2. Sign in with GitHub (first time only)
 3. Auto-approve and redirect to your live terminal
 
-On subsequent runs, the saved token is reused — just run `pnpm dev` and the browser opens directly to your terminal.
+On subsequent runs, the saved token is reused — just run `pnpm dev` (or `npx @cmux-relay/agent`) and the browser opens directly to your terminal.
 
 ### Access from Any Device
 
@@ -130,7 +134,7 @@ pnpm dev -- [options]
 
 | Flag | Env Variable | Default | Description |
 |------|-------------|---------|-------------|
-| `--relay-url` | `CMUX_RELAY_URL` | — | Relay server WebSocket URL (cloud mode) |
+| `--relay-url` | `CMUX_RELAY_URL` | `wss://relay.jaz.duckdns.org/ws/agent` | Relay server URL |
 | `--token` | `CMUX_RELAY_TOKEN` | — | API token (auto-saved after pairing) |
 | `--local` | — | — | Run in local mode (direct WebSocket) |
 | `--port` | `CMUX_RELAY_PORT` | `8080` | Local mode server port |

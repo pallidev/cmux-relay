@@ -5,7 +5,7 @@ import { createApiToken, deleteApiToken, listApiTokens } from './db.js';
 import { getAuthorizationUrl, handleCallback } from './github-oauth.js';
 import { SessionRegistry } from './session-registry.js';
 
-const WEB_URL = process.env.WEB_URL || 'http://localhost:3000';
+const WEB_URL = process.env.WEB_URL || 'https://cmux.jaz.duckdns.org';
 const STATES = new Map<string, { expires: number }>();
 
 export async function handleHttpRequest(

@@ -819,3 +819,238 @@ html, body, #root {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--bg-surface2);
 }
+
+/* ── GitHub Login ──────────────────────────────────────────── */
+.github-login-btn {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--bg-surface0);
+  border-radius: var(--radius);
+  background: var(--bg-surface0);
+  color: var(--text);
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.github-login-btn:hover {
+  background: var(--bg-surface1);
+  border-color: var(--blue);
+}
+
+/* ── Dashboard ─────────────────────────────────────────────── */
+.dashboard-card {
+  max-width: 600px;
+  width: 100%;
+  padding: 2rem;
+  background: rgba(24, 24, 37, 0.6);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(49, 50, 68, 0.6);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.dashboard-card h1 {
+  font-size: 1.5rem;
+  background: linear-gradient(135deg, var(--blue), var(--mauve));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+
+.dashboard-user {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--text-sub);
+  font-size: 0.85rem;
+}
+
+.logout-btn {
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--bg-surface1);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-sub);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: color var(--transition), border-color var(--transition);
+}
+
+.logout-btn:hover {
+  color: var(--red);
+  border-color: var(--red);
+}
+
+.dashboard-section {
+  margin-bottom: 1.5rem;
+}
+
+.dashboard-section h2 {
+  font-size: 1rem;
+  color: var(--text);
+  margin-bottom: 0.5rem;
+}
+
+.dashboard-hint {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  margin-bottom: 0.75rem;
+}
+
+.dashboard-empty {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  padding: 0.5rem 0;
+}
+
+.dashboard-error {
+  color: var(--red);
+  font-size: 0.85rem;
+  margin: 0.5rem 0;
+}
+
+.token-create {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.token-create input {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--bg-surface0);
+  border-radius: var(--radius);
+  background: var(--bg-surface0);
+  color: var(--text);
+  font-size: 0.9rem;
+  outline: none;
+}
+
+.token-create input:focus {
+  border-color: var(--blue);
+}
+
+.token-create button {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--blue);
+  color: var(--bg-crust);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.token-create button:hover {
+  opacity: 0.9;
+}
+
+.token-reveal {
+  background: rgba(137, 180, 250, 0.1);
+  border: 1px solid rgba(137, 180, 250, 0.2);
+  border-radius: var(--radius);
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.token-reveal p {
+  color: var(--text-sub);
+  font-size: 0.8rem;
+  margin-bottom: 0.4rem;
+}
+
+.token-reveal code {
+  display: block;
+  padding: 0.5rem;
+  background: var(--bg-crust);
+  border-radius: 4px;
+  font-size: 0.8rem;
+  color: var(--green);
+  word-break: break-all;
+}
+
+.token-usage {
+  margin-top: 0.5rem !important;
+}
+
+.token-usage code {
+  font-size: 0.7rem !important;
+  color: var(--peach) !important;
+}
+
+.token-list, .session-list {
+  list-style: none;
+}
+
+.token-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--bg-surface0);
+}
+
+.token-list li:last-child {
+  border-bottom: none;
+}
+
+.token-list strong {
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.token-date {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+}
+
+.delete-btn {
+  padding: 0.3rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.delete-btn:hover {
+  color: var(--red);
+  border-color: var(--red);
+}
+
+.session-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--bg-surface0);
+}
+
+.session-link {
+  color: var(--blue);
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+
+.session-link:hover {
+  text-decoration: underline;
+}
+
+.session-clients {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}

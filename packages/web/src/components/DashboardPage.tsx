@@ -75,7 +75,7 @@ export function DashboardPage({ jwt }: { jwt: string }) {
 
         {sessionId ? (
           <>
-            <a href={`/s/${sessionId}`} className="terminal-open-btn">
+            <a href="/terminal" onClick={() => { if (sessionId) localStorage.setItem('cmux-session-id', sessionId); }} className="terminal-open-btn">
               View Terminal
             </a>
 

@@ -101,12 +101,12 @@ function handleClientConnection(
         ws.close(1008, 'Invalid auth token');
         return;
       }
-      connectClientToSession(ws, req, registry, sessionId);
+      connectClientToSession(ws, _req, registry, sessionId);
     });
     return;
   }
 
-  connectClientToSession(ws, req, registry, sessionId);
+  connectClientToSession(ws, _req, registry, sessionId);
 }
 
 function connectClientToSession(ws: WebSocket, req: IncomingMessage, registry: SessionRegistry, sessionId: string): void {

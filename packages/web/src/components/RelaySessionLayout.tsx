@@ -129,6 +129,7 @@ function RelaySessionInner({ wsUrl }: { wsUrl: string }) {
           <span className="header-title">
             {workspaces.find(w => w.id === selectedWorkspaceId)?.title || 'cmux-relay'}
           </span>
+          <a href="/" className="dashboard-btn" title="Dashboard">&#x2302;</a>
           <button className="notif-bell" onClick={() => setShowNotifPanel(v => !v)}>
             &#x1F514;
             {notifications.length > 0 && <span className="notif-badge">{notifications.length}</span>}

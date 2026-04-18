@@ -1164,6 +1164,21 @@ html, body, #root {
   color: var(--text-muted);
 }
 
+.dashboard-btn {
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 1.3rem;
+  text-decoration: none;
+  cursor: pointer;
+  padding: 0 0.5rem;
+  line-height: 1;
+}
+
+.dashboard-btn:hover {
+  opacity: 0.7;
+}
+
 .session-connect-btn {
   display: inline-flex;
   align-items: center;

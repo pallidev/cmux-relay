@@ -60,10 +60,11 @@ export function createWSServer(
   host: string,
   deps: ServerDeps,
   tls?: TlsOptions,
+  localMode = false,
 ): Promise<ReturnType<typeof createHttpServer> | ReturnType<typeof createHttpsServer>> {
   return new Promise((resolve, reject) => {
     const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
-      await handleHttpRequest(req, res);
+      await handleHttpRequest(req, res, localMode);
     };
 
     const httpServer = tls
@@ -113,7 +114,26 @@ export function createWSServer(
 
 const webDirCache: { value: string } = { value: '' };
 
-async function handleHttpRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+async function handleHttpRequest(req: IncomingMessage, res: ServerResponse, localMode: boolean): Promise<void> {
+  const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
+  const path = url.pathname;
+
+  if (localMode && path === '/api/mode' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ mode: 'local' }));
+    return;
+  }
+
+  if (localMode && path === '/api/local/auth' && req.method === 'POST') {
+    const token = generateClientToken();
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Set-Cookie': `relay_jwt=${token}; Path=/; SameSite=Lax; Max-Age=${30 * 24 * 60 * 60}`,
+    });
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
   if (!webDirCache.value) {
     webDirCache.value = resolveWebDir();
   }

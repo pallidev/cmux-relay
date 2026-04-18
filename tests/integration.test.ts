@@ -17,10 +17,10 @@ import { createServer as createNetServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
-import { SessionStore } from '../packages/server/src/session-store.js';
-import { createWSServer } from '../packages/server/src/ws-server.js';
-import { CmuxClient } from '../packages/server/src/cmux-client.js';
-import type { IInputHandler } from '../packages/server/src/input-handler.js';
+import { SessionStore } from '../packages/agent/src/session-store.js';
+import { createWSServer } from '../packages/agent/src/ws-server.js';
+import { CmuxClient } from '../packages/agent/src/cmux-client.js';
+import type { IInputHandler } from '../packages/agent/src/input-handler.js';
 import jwt from 'jsonwebtoken';
 
 // ─── Shared constants ───

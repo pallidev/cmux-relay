@@ -1,6 +1,7 @@
 {
   "name": "cmux-relay-agent",
   "version": "0.1.4",
+  "type": "module",
   "bin": {
     "cmux-relay": "./dist/bin.js"
   },

@@ -11,7 +11,8 @@ function getGitHub(): GitHub {
     if (!clientId || !clientSecret) {
       throw new Error('GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET env vars are required');
     }
-    github = new GitHub(clientId, clientSecret, null);
+    const redirectUri = process.env.GITHUB_REDIRECT_URI || null;
+    github = new GitHub(clientId, clientSecret, redirectUri);
   }
   return github;
 }

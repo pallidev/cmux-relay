@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getRelayHttpUrl } from '../lib/helpers';
 
 export function DashboardPage({ jwt }: { jwt: string }) {
-  const relayUrl = getRelayHttpUrl();
+  const apiBase = '/api';
   const [tokens, setTokens] = useState<{ id: string; name: string | null; last_used_at: string | null; created_at: string }[]>([]);
   const [sessions, setSessions] = useState<{ sessionId: string; clientCount: number }[]>([]);
   const [newTokenName, setNewTokenName] = useState('');
@@ -14,20 +13,20 @@ export function DashboardPage({ jwt }: { jwt: string }) {
 
   const fetchTokens = useCallback(async () => {
     try {
-      const res = await fetch(`${relayUrl}/api/tokens`, { headers: authHeaders });
+      const res = await fetch(`${apiBase}/api/tokens`, { headers: authHeaders });
       if (res.ok) setTokens(await res.json());
     } catch { /* ignore */ }
-  }, [jwt, relayUrl]);
+  }, [jwt, apiBase]);
 
   const fetchSessions = useCallback(async () => {
     try {
-      const res = await fetch(`${relayUrl}/api/sessions`, { headers: authHeaders });
+      const res = await fetch(`${apiBase}/api/sessions`, { headers: authHeaders });
       if (res.ok) setSessions(await res.json());
     } catch { /* ignore */ }
-  }, [jwt, relayUrl]);
+  }, [jwt, apiBase]);
 
   useEffect(() => {
-    fetch(`${relayUrl}/api/auth/me`, { headers: authHeaders })
+    fetch(`${apiBase}/api/auth/me`, { headers: authHeaders })
       .then(res => res.ok ? res.json() : null)
       .then(data => { if (data) setUser(data); })
       .catch(() => {});
@@ -36,13 +35,13 @@ export function DashboardPage({ jwt }: { jwt: string }) {
     fetchSessions();
     const interval = setInterval(fetchSessions, 5000);
     return () => clearInterval(interval);
-  }, [jwt, relayUrl]);
+  }, [jwt, apiBase]);
 
   const handleCreateToken = async () => {
     setError('');
     setNewToken(null);
     try {
-      const res = await fetch(`${relayUrl}/api/tokens`, {
+      const res = await fetch(`${apiBase}/api/tokens`, {
         method: 'POST',
         headers: { ...authHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newTokenName || undefined }),
@@ -61,7 +60,7 @@ export function DashboardPage({ jwt }: { jwt: string }) {
   };
 
   const handleDeleteToken = async (id: string) => {
-    await fetch(`${relayUrl}/api/tokens/${id}`, { method: 'DELETE', headers: authHeaders });
+    await fetch(`${apiBase}/api/tokens/${id}`, { method: 'DELETE', headers: authHeaders });
     fetchTokens();
   };
 

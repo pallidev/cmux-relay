@@ -1,10 +1,6 @@
-import { getRelayHttpUrl } from '../lib/helpers';
-
 export function LoginPage() {
-  const relayHttpUrl = getRelayHttpUrl();
-
   const handleGithubLogin = () => {
-    window.location.href = `${relayHttpUrl}/api/auth/github`;
+    window.location.href = '/api/auth/github';
   };
 
   return (

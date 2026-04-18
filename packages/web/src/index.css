@@ -1061,6 +1061,109 @@ html, body, #root {
   color: var(--text);
 }
 
+.session-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.session-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  display: inline-block;
+}
+
+.session-meta {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.terminal-open-btn {
+  display: block;
+  width: 100%;
+  padding: 1rem;
+  margin: 1rem 0;
+  background: var(--green);
+  color: var(--bg-base);
+  border: none;
+  border-radius: 8px;
+  font-size: 1.1rem;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.terminal-open-btn:hover {
+  opacity: 0.9;
+  text-decoration: none;
+}
+
+.viewer-info {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.viewer-count {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.viewer-label {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.viewer-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--blue);
+  color: var(--bg-base);
+  font-size: 0.75rem;
+  font-weight: 700;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 999px;
+  padding: 0 0.4rem;
+  vertical-align: middle;
+  margin-left: 0.5rem;
+}
+
+.viewer-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.viewer-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.6rem 0.8rem;
+  background: var(--bg-surface0);
+  border-radius: 6px;
+  margin-bottom: 0.4rem;
+}
+
+.viewer-device {
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.viewer-ip {
+  font-family: monospace;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
 .session-connect-btn {
   display: inline-flex;
   align-items: center;

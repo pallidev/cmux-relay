@@ -9,16 +9,14 @@ import type { PaneInfo, CmuxNotification } from '@cmux-relay/shared';
 
 export function RelaySessionLayout({ sessionId }: { sessionId: string }) {
   const isMobile = useMobile();
-  const [jwt, setJwt] = useState<string>(() => {
+  const [jwt] = useState<string>(() => {
     const match = document.cookie.match(/(?:^|;\s*)relay_jwt=([^;]+)/);
     return match ? match[1] : '';
   });
 
-  if (!jwt) {
-    return <LoginPage />;
-  }
-
-  const wsUrl = `${getRelayWsUrl()}/ws/client?session=${sessionId}&token=${encodeURIComponent(jwt)}`;
+  const wsUrl = jwt
+    ? `${getRelayWsUrl()}/ws/client?session=${sessionId}&token=${encodeURIComponent(jwt)}`
+    : `${getRelayWsUrl()}/ws/client?session=${sessionId}`;
 
   if (isMobile) return <MobileLayout relayWsUrl={wsUrl} />;
 

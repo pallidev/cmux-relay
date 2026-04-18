@@ -14,6 +14,11 @@ function isTerminalPath(): boolean {
   return window.location.pathname === '/terminal';
 }
 
+function getSessionIdFromPath(): string | null {
+  const match = window.location.pathname.match(/^\/s\/([a-zA-Z0-9]+)$/);
+  return match ? match[1] : null;
+}
+
 function useLocalMode(): { isLocal: boolean | null } {
   const [isLocal, setIsLocal] = useState<boolean | null>(null);
   useEffect(() => {
@@ -28,6 +33,9 @@ function useLocalMode(): { isLocal: boolean | null } {
 export default function App() {
   const pairCode = getPairCodeFromPath();
   if (pairCode) return <PairPage code={pairCode} />;
+
+  const sessionId = getSessionIdFromPath();
+  if (sessionId) return <RelaySessionLayout sessionId={sessionId} />;
 
   if (isTerminalPath()) return <TerminalPage />;
 

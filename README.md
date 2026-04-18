@@ -38,7 +38,7 @@ You run AI coding agents like Claude Code in [cmux](https://github.com/manaflow-
 
 ```bash
 # Option 1: One command (recommended)
-npx @cmux-relay/agent
+npx cmux-relay-agent
 
 # Option 2: From source
 git clone https://github.com/pallidev/cmux-relay.git
@@ -53,7 +53,7 @@ That's it. The agent will:
 2. Sign in with GitHub (first time only)
 3. Auto-approve and redirect to your live terminal
 
-On subsequent runs, the saved token is reused — just run `pnpm dev` (or `npx @cmux-relay/agent`) and the browser opens directly to your terminal.
+On subsequent runs, the saved token is reused — just run `pnpm dev` (or `npx cmux-relay-agent`) and the browser opens directly to your terminal.
 
 ### Access from Any Device
 

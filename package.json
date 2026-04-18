@@ -27,5 +27,8 @@
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "ws": "^8.20.0"
+  },
+  "dependencies": {
+    "esbuild": "^0.25.12"
   }
 }

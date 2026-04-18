@@ -38,7 +38,7 @@
 
 ```bash
 # 방법 1: 한 줄 실행 (권장)
-npx @cmux-relay/agent
+npx cmux-relay-agent
 
 # 방법 2: 소스에서 실행
 git clone https://github.com/pallidev/cmux-relay.git
@@ -53,7 +53,7 @@ pnpm dev
 2. GitHub 로그인 (최초 1회만)
 3. 자동 승인 후 라이브 터미널로 이동
 
-이후 실행 시 저장된 토큰을 재사용합니다 — `pnpm dev` (또는 `npx @cmux-relay/agent`)만 실행하면 브라우저가 바로 터미널로 열립니다.
+이후 실행 시 저장된 토큰을 재사용합니다 — `pnpm dev` (또는 `npx cmux-relay-agent`)만 실행하면 브라우저가 바로 터미널로 열립니다.
 
 ### 모든 기기에서 접속
 

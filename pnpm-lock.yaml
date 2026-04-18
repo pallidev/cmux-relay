@@ -7,6 +7,10 @@ settings:
 importers:
 
   .:
+    dependencies:
+      esbuild:
+        specifier: ^0.25.12
+        version: 0.25.12
     devDependencies:
       '@playwright/test':
         specifier: ^1.59.1
@@ -36,6 +40,28 @@ importers:
         specifier: ^8.20.0
         version: 8.20.0
 
+  packages/agent:
+    dependencies:
+      ws:
+        specifier: ^8.18.0
+        version: 8.20.0
+    devDependencies:
+      '@cmux-relay/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@types/ws':
+        specifier: ^8.5.13
+        version: 8.18.1
+      esbuild:
+        specifier: ^0.25.0
+        version: 0.25.12
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
   packages/relay:
     dependencies:
       '@cmux-relay/shared':
@@ -57,31 +83,6 @@ importers:
       '@types/better-sqlite3':
         specifier: ^7.6.0
         version: 7.6.13
-      '@types/ws':
-        specifier: ^8.5.13
-        version: 8.18.1
-      tsx:
-        specifier: ^4.19.0
-        version: 4.21.0
-      typescript:
-        specifier: ^5.7.0
-        version: 5.9.3
-
-  packages/server:
-    dependencies:
-      '@cmux-relay/shared':
-        specifier: workspace:*
-        version: link:../shared
-      jsonwebtoken:
-        specifier: ^9.0.2
-        version: 9.0.3
-      ws:
-        specifier: ^8.18.0
-        version: 8.20.0
-    devDependencies:
-      '@types/jsonwebtoken':
-        specifier: ^9.0.7
-        version: 9.0.10
       '@types/ws':
         specifier: ^8.5.13
         version: 8.18.1

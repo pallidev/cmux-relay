@@ -8,9 +8,11 @@ import { handleClientMessage } from './message-handler.js';
 import type { ServerDeps, TlsOptions } from './ws-server.js';
 import type { MessageHandlerDeps } from './message-handler.js';
 import type { WorkspaceInfo, SurfaceInfo, PaneInfo, RelayToClient } from '@cmux-relay/shared';
-import { readFile, writeFile, unlink } from 'node:fs/promises';
+import { readFile, writeFile, unlink, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { execSync } from 'node:child_process';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 const args = process.argv.slice(2);
 const port = parseInt(getArg('--port') || process.env.CMUX_RELAY_PORT || '8080', 10);
@@ -20,6 +22,24 @@ const tlsCert = getArg('--tls-cert') || process.env.CMUX_RELAY_TLS_CERT || '';
 const tlsKey = getArg('--tls-key') || process.env.CMUX_RELAY_TLS_KEY || '';
 const apiToken = getArg('--token') || process.env.CMUX_RELAY_TOKEN || '';
 const relayUrl = getArg('--relay-url') || process.env.CMUX_RELAY_URL || '';
+
+const AUTH_DIR = join(homedir(), '.cmux-relay');
+const AUTH_FILE = join(AUTH_DIR, 'auth.json');
+
+interface AuthData { token: string; relayUrl: string }
+
+async function loadSavedAuth(): Promise<AuthData | null> {
+  try {
+    const data = await readFile(AUTH_FILE, 'utf-8');
+    return JSON.parse(data) as AuthData;
+  } catch { return null; }
+}
+
+async function saveAuth(token: string, url: string): Promise<void> {
+  await mkdir(AUTH_DIR, { recursive: true });
+  await writeFile(AUTH_FILE, JSON.stringify({ token, relayUrl: url }, null, 2), 'utf-8');
+  console.log(`[agent] Token saved to ${AUTH_FILE}`);
+}
 
 function getArg(name: string): string {
   const idx = args.indexOf(name);
@@ -112,10 +132,11 @@ async function ensureSingleInstance(): Promise<void> {
 }
 
 async function main() {
-  const isCloudMode = !!apiToken;
+  const savedAuth = await loadSavedAuth();
+  const isCloudMode = !!apiToken || !!savedAuth;
 
   if (isCloudMode) {
-    await runCloudMode();
+    await runCloudMode(savedAuth);
   } else {
     await runLocalMode();
   }
@@ -306,7 +327,7 @@ async function runLocalMode() {
   process.on('SIGTERM', shutdown);
 }
 
-async function runCloudMode() {
+async function runCloudMode(savedAuth: AuthData | null) {
   console.log('cmux-relay agent starting (cloud mode)...');
 
   const store = new SessionStore();
@@ -322,7 +343,16 @@ async function runCloudMode() {
   await connectWithRetry(cmux);
   msgDeps.cmux = cmux;
 
-  const relay = new RelayConnection(relayUrl, apiToken);
+  const token = apiToken || savedAuth?.token || undefined;
+  const url = relayUrl || savedAuth?.relayUrl || 'wss://relay.jaz.duckdns.org/ws/agent';
+
+  const relay = new RelayConnection(url, token);
+
+  if (!token) {
+    relay.onToken(async (newToken) => {
+      await saveAuth(newToken, url);
+    });
+  }
 
   relay.onClientData(async (msg) => {
     const clientId = 'cloud-client';

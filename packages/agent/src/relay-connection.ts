@@ -7,7 +7,7 @@ type ClientDataHandler = (msg: ClientOutgoing) => void;
 export class RelayConnection {
   private ws: WebSocket | null = null;
   private relayUrl: string;
-  private apiToken: string;
+  private apiToken: string | null;
   private sessionId: string | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -15,10 +15,15 @@ export class RelayConnection {
   private onClientConnectedCb: (() => void) | null = null;
   private onClientDisconnectedCb: (() => void) | null = null;
   private isConnecting = false;
+  private onTokenCb: ((token: string) => void) | null = null;
 
-  constructor(relayUrl: string, apiToken: string) {
+  constructor(relayUrl: string, apiToken?: string) {
     this.relayUrl = relayUrl;
-    this.apiToken = apiToken;
+    this.apiToken = apiToken || null;
+  }
+
+  onToken(handler: (token: string) => void): void {
+    this.onTokenCb = handler;
   }
 
   connect(): Promise<string> {
@@ -26,12 +31,18 @@ export class RelayConnection {
       if (this.isConnecting) return;
       this.isConnecting = true;
 
-      const url = `${this.relayUrl}?token=${encodeURIComponent(this.apiToken)}`;
+      const url = this.apiToken
+        ? `${this.relayUrl}?token=${encodeURIComponent(this.apiToken)}`
+        : this.relayUrl;
       const ws = new WebSocket(url);
 
       ws.on('open', () => {
         console.log('[agent] Connected to relay server');
-        ws.send(encodeMessage({ type: 'agent.register' }));
+        if (this.apiToken) {
+          ws.send(encodeMessage({ type: 'agent.register' }));
+        } else {
+          ws.send(encodeMessage({ type: 'agent.pair' }));
+        }
       });
 
       ws.on('message', (raw) => {
@@ -44,6 +55,23 @@ export class RelayConnection {
           this.ws = ws;
           this.startHeartbeat();
           resolve(msg.sessionId);
+        } else if (msg.type === 'pairing.wait') {
+          console.log(`\n  Open this URL to link your agent:\n`);
+          console.log(`    ${msg.url}\n`);
+          console.log(`  Waiting for approval...`);
+        } else if (msg.type === 'pairing.approved') {
+          console.log(`[agent] Pairing approved! Token received.`);
+          this.apiToken = msg.token;
+          this.onTokenCb?.(msg.token);
+          // Reconnect with the new token
+          ws.close();
+          this.isConnecting = false;
+          this.reconnectWithToken().then(resolve, reject);
+        } else if (msg.type === 'pairing.rejected') {
+          console.error(`[agent] Pairing rejected: ${msg.reason}`);
+          ws.close();
+          this.isConnecting = false;
+          reject(new Error(msg.reason));
         } else if (msg.type === 'client.data') {
           this.onClientDataCb?.(msg.payload);
         } else if (msg.type === 'client.connected') {
@@ -56,6 +84,7 @@ export class RelayConnection {
       });
 
       ws.on('close', (code, reason) => {
+        if (!this.sessionId) return;
         console.log(`[agent] Relay connection closed: ${code} ${reason}`);
         this.cleanup();
         this.scheduleReconnect();
@@ -71,6 +100,54 @@ export class RelayConnection {
           this.scheduleReconnect();
         }
       });
+    });
+  }
+
+  private async reconnectWithToken(): Promise<string> {
+    this.isConnecting = true;
+    const url = `${this.relayUrl}?token=${encodeURIComponent(this.apiToken!)}`;
+    const ws = new WebSocket(url);
+
+    return new Promise((resolve, reject) => {
+      ws.on('open', () => {
+        ws.send(encodeMessage({ type: 'agent.register' }));
+      });
+
+      ws.on('message', (raw) => {
+        const data = typeof raw === 'string' ? raw : raw.toString('utf-8');
+        const msg = decodeMessage<RelayToAgent>(data);
+
+        if (msg.type === 'session.created') {
+          this.sessionId = msg.sessionId;
+          this.ws = ws;
+          this.isConnecting = false;
+          this.startHeartbeat();
+          this.setupMessageHandlers(ws);
+          resolve(msg.sessionId);
+        }
+      });
+
+      ws.on('error', (err) => {
+        this.isConnecting = false;
+        reject(err);
+      });
+    });
+  }
+
+  private setupMessageHandlers(ws: WebSocket): void {
+    ws.on('message', (raw) => {
+      const data = typeof raw === 'string' ? raw : raw.toString('utf-8');
+      const msg = decodeMessage<RelayToAgent>(data);
+
+      if (msg.type === 'client.data') {
+        this.onClientDataCb?.(msg.payload);
+      } else if (msg.type === 'client.connected') {
+        console.log('[agent] Client connected via relay');
+        this.onClientConnectedCb?.();
+      } else if (msg.type === 'client.disconnected') {
+        console.log('[agent] Client disconnected from relay');
+        this.onClientDisconnectedCb?.();
+      }
     });
   }
 

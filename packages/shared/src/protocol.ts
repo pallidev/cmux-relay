@@ -100,10 +100,15 @@ export interface AgentHeartbeatMessage {
   type: 'agent.heartbeat';
 }
 
+export interface AgentPairMessage {
+  type: 'agent.pair';
+}
+
 export type AgentOutgoing =
   | AgentRegisterMessage
   | AgentDataMessage
-  | AgentHeartbeatMessage;
+  | AgentHeartbeatMessage
+  | AgentPairMessage;
 
 // ─── Relay → Agent ───
 
@@ -125,11 +130,30 @@ export interface ClientDataMessage {
   payload: ClientOutgoing;
 }
 
+export interface PairingWaitMessage {
+  type: 'pairing.wait';
+  code: string;
+  url: string;
+}
+
+export interface PairingApprovedMessage {
+  type: 'pairing.approved';
+  token: string;
+}
+
+export interface PairingRejectedMessage {
+  type: 'pairing.rejected';
+  reason: string;
+}
+
 export type RelayToAgent =
   | SessionCreatedMessage
   | ClientConnectedMessage
   | ClientDisconnectedMessage
-  | ClientDataMessage;
+  | ClientDataMessage
+  | PairingWaitMessage
+  | PairingApprovedMessage
+  | PairingRejectedMessage;
 
 // ─── Helpers ───
 

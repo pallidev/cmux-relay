@@ -102,6 +102,13 @@ export class SessionStore {
     this.clients.delete(clientId);
   }
 
+  hasAuthenticatedClients(): boolean {
+    for (const client of this.clients.values()) {
+      if (client.authenticated) return true;
+    }
+    return false;
+  }
+
   authenticateClient(clientId: string): void {
     const client = this.clients.get(clientId);
     if (client) client.authenticated = true;

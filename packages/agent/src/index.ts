@@ -157,11 +157,13 @@ async function runLocalMode() {
     inputHandler: {
       handleInput: () => Promise.resolve(),
       handleResize: () => Promise.resolve(),
+      resizeForMobile: () => Promise.resolve(),
+      restoreAllMobileSizes: () => Promise.resolve(),
     },
   };
 
   const cmux = new CmuxClient(cmuxSocket || undefined);
-  const inputHandler = new InputHandler(cmux);
+  const inputHandler = new InputHandler(cmux, store);
   deps.inputHandler = inputHandler;
 
   let isReconnecting = false;
@@ -339,7 +341,7 @@ async function runCloudMode(savedAuth: AuthData | null) {
 
   const store = new SessionStore();
   const cmux = new CmuxClient(cmuxSocket || undefined);
-  const inputHandler = new InputHandler(cmux);
+  const inputHandler = new InputHandler(cmux, store);
 
   const msgDeps: MessageHandlerDeps = {
     store,
@@ -360,6 +362,11 @@ async function runCloudMode(savedAuth: AuthData | null) {
       await saveAuth(newToken, url);
     });
   }
+
+  relay.onClientDisconnected(async () => {
+    console.log('[agent] Restoring original pane sizes');
+    await inputHandler.restoreAllMobileSizes();
+  });
 
   relay.onClientData(async (msg) => {
     const clientId = 'cloud-client';

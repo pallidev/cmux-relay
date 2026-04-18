@@ -25,7 +25,7 @@ export interface InputMessage {
 export interface ResizeMessage {
   type: 'resize';
   surfaceId: string;
-  payload: { cols: number; rows: number };
+  payload: { cols: number; rows: number; isMobile?: boolean };
 }
 
 export type ClientOutgoing =

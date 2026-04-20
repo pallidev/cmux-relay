@@ -1,17 +1,18 @@
 {
   "name": "cmux-relay-agent",
   "version": "0.1.7",
+  "type": "module",
   "bin": {
-    "cmux-relay": "./dist/bin.js"
+    "cmux-relay": "./dist/bin.cjs"
   },
   "files": [
-    "dist/bin.js",
+    "dist/bin.cjs",
     "README.md"
   ],
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
-    "build": "esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=dist/bin.js --banner:js='#!/usr/bin/env node'",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=dist/bin.cjs --banner:js='#!/usr/bin/env node'",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm run build"
   },

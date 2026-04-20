@@ -16,6 +16,7 @@ export class RelayConnection {
   private onClientConnectedCb: (() => void) | null = null;
   private onClientDisconnectedCb: (() => void) | null = null;
   private isConnecting = false;
+  private intentionallyClosed = false;
   private onTokenCb: ((token: string) => void) | null = null;
 
   constructor(relayUrl: string, apiToken?: string) {
@@ -86,6 +87,7 @@ export class RelayConnection {
       });
 
       ws.on('close', (code, reason) => {
+        if (this.intentionallyClosed) return;
         if (!this.sessionId) return;
         console.log(`[agent] Relay connection closed: ${code} ${reason}`);
         this.cleanup();
@@ -176,6 +178,7 @@ export class RelayConnection {
   }
 
   disconnect(): void {
+    this.intentionallyClosed = true;
     this.stopHeartbeat();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);

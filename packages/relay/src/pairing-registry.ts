@@ -14,11 +14,19 @@ export class PairingRegistry {
   private pending = new Map<string, PendingPairing>();
   private wsToCode = new Map<WebSocket, string>();
   private webUrl: string;
+  private cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(webUrl: string) {
     this.webUrl = webUrl;
     // Clean up expired pairings every 5 minutes
-    setInterval(() => this.cleanup(), 5 * 60 * 1000);
+    this.cleanupTimer = setInterval(() => this.cleanup(), 5 * 60 * 1000);
+  }
+
+  close(): void {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
+    }
   }
 
   createPairing(ws: WebSocket): { code: string; url: string } {

@@ -64,10 +64,28 @@ function RelaySessionInner({ wsUrl, onDisconnect }: { wsUrl: string; onDisconnec
     }, 5000);
   }, [notifications]);
 
+  // Browser notification permission request on connect
+  const pendingBrowserNotifs = useRef<CmuxNotification[]>([]);
+
+  useEffect(() => {
+    if (status === 'connected' && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().then((p) => {
+        if (p === 'granted' && pendingBrowserNotifs.current.length > 0) {
+          for (const n of pendingBrowserNotifs.current) {
+            new Notification(n.title, { body: n.subtitle ? `${n.subtitle}: ${n.body}` : n.body, tag: n.id });
+          }
+          pendingBrowserNotifs.current = [];
+        }
+      });
+    }
+  }, [status]);
+
   onNotifications(useCallback((newNotifs: CmuxNotification[]) => {
     for (const n of newNotifs) {
       if ('Notification' in window && Notification.permission === 'granted') {
         new Notification(n.title, { body: n.subtitle ? `${n.subtitle}: ${n.body}` : n.body, tag: n.id });
+      } else {
+        pendingBrowserNotifs.current.push(n);
       }
     }
   }, []));

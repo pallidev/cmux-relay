@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 
 // Global registry: surfaceId → writeOutput function
@@ -14,13 +15,15 @@ interface TerminalProps {
   surfaceId: string;
   cols?: number;
   rows?: number;
+  autoFit?: boolean;
   onInput: (data: string) => void;
   onResize: (cols: number, rows: number) => void;
 }
 
-export function Terminal({ surfaceId, cols, rows, onInput, onResize }: TerminalProps) {
+export function Terminal({ surfaceId, cols, rows, autoFit, onInput, onResize }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
   const onInputRef = useRef(onInput);
   const onResizeRef = useRef(onResize);
 
@@ -60,9 +63,17 @@ export function Terminal({ surfaceId, cols, rows, onInput, onResize }: TerminalP
       },
     });
 
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    fitAddonRef.current = fitAddon;
+
     term.open(containerRef.current);
 
-    if (cols && rows) {
+    if (autoFit) {
+      fitAddon.fit();
+      const dims = fitAddon.proposeDimensions();
+      if (dims) onResizeRef.current(dims.cols, dims.rows);
+    } else if (cols && rows) {
       term.resize(cols, rows);
       onResizeRef.current(cols, rows);
     }
@@ -105,19 +116,36 @@ export function Terminal({ surfaceId, cols, rows, onInput, onResize }: TerminalP
       terminalRegistry.delete(surfaceId);
       term.dispose();
     };
-  }, [surfaceId]);
+  }, [surfaceId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-fit on resize when autoFit mode
+  useEffect(() => {
+    if (!autoFit || !fitAddonRef.current || !containerRef.current) return;
+
+    const observer = new ResizeObserver(() => {
+      if (!fitAddonRef.current || !containerRef.current) return;
+      if (containerRef.current.offsetHeight === 0) return;
+      try {
+        fitAddonRef.current.fit();
+        const dims = fitAddonRef.current.proposeDimensions();
+        if (dims) onResizeRef.current(dims.cols, dims.rows);
+      } catch {}
+    });
+
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [autoFit]);
 
   useEffect(() => {
-    if (termRef.current && cols && rows) {
-      termRef.current.resize(cols, rows);
-    }
-  }, [cols, rows]);
+    if (autoFit || !termRef.current || !cols || !rows) return;
+    termRef.current.resize(cols, rows);
+  }, [cols, rows, autoFit]);
 
   return (
     <div
       ref={containerRef}
       style={{
-        width: cols ? `${cols * 7.8}px` : '100%',
+        width: cols && !autoFit ? `${cols * 7.8}px` : '100%',
         minWidth: '100%',
         height: '100%',
         backgroundColor: '#1e1e2e',

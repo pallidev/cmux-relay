@@ -33,71 +33,107 @@ export function useRelay({ url, token, sessionId }: UseRelayOptions) {
   useEffect(() => {
     if (!url) return;
 
-    const ws = new WebSocket(url);
-    wsRef.current = ws;
-    setStatus('connecting');
+    let disposed = false;
+    let reconnectTimer: ReturnType<typeof setTimeout>;
+    let reconnectDelay = 1000;
 
-    ws.onopen = () => {
-      setStatus('connected');
-      if (token) {
-        ws.send(JSON.stringify({ type: 'auth', payload: { token } }));
-      }
+    const connect = () => {
+      if (disposed) return;
+
+      const ws = new WebSocket(url);
+      wsRef.current = ws;
+      setStatus('connecting');
+
+      ws.onopen = () => {
+        if (disposed) return;
+        reconnectDelay = 1000;
+        setStatus('connected');
+        if (token) {
+          ws.send(JSON.stringify({ type: 'auth', payload: { token } }));
+        }
+      };
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data as string);
+        switch (msg.type) {
+          case 'workspaces':
+            setWorkspaces(msg.payload.workspaces);
+            break;
+          case 'surfaces':
+            setSurfaces(prev => {
+              const next = prev.filter(s => s.workspaceId !== msg.workspaceId);
+              return [...next, ...msg.payload.surfaces];
+            });
+            break;
+          case 'panes':
+            setPanes(prev => {
+              const next = prev.filter(p => p.workspaceId !== msg.workspaceId);
+              const incoming = (msg.payload.panes as PaneInfo[]).map(p => ({
+                ...p,
+                workspaceId: msg.workspaceId,
+              }));
+              return [...next, ...incoming];
+            });
+            if (msg.payload.containerFrame) {
+              setContainerFrames(prev => ({
+                ...prev,
+                [msg.workspaceId]: msg.payload.containerFrame,
+              }));
+            }
+            break;
+          case 'surface.active':
+            setActiveSurfaceId(msg.surfaceId);
+            setActiveWorkspaceId(msg.workspaceId);
+            break;
+          case 'output':
+            outputCbRef.current(msg.surfaceId, msg.payload.data);
+            break;
+          case 'notifications':
+            setNotifications(prev => {
+              const existingIds = new Set(prev.map(n => n.id));
+              const newOnes = msg.payload.notifications.filter((n: CmuxNotification) => !existingIds.has(n.id));
+              return [...newOnes, ...prev];
+            });
+            notificationCbRef.current(msg.payload.notifications);
+            break;
+          case 'error':
+            console.error('Relay error:', msg.payload.message);
+            break;
+        }
+      };
+
+      ws.onclose = () => {
+        if (disposed) return;
+        wsRef.current = null;
+        setStatus('disconnected');
+        reconnectTimer = setTimeout(connect, reconnectDelay);
+        reconnectDelay = Math.min(reconnectDelay * 2, 10000);
+      };
+
+      ws.onerror = () => {
+        if (disposed) return;
+        setStatus('disconnected');
+      };
     };
 
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data as string);
-      switch (msg.type) {
-        case 'workspaces':
-          setWorkspaces(msg.payload.workspaces);
-          break;
-        case 'surfaces':
-          setSurfaces(prev => {
-            const next = prev.filter(s => s.workspaceId !== msg.workspaceId);
-            return [...next, ...msg.payload.surfaces];
-          });
-          break;
-        case 'panes':
-          setPanes(prev => {
-            const next = prev.filter(p => p.workspaceId !== msg.workspaceId);
-            const incoming = (msg.payload.panes as PaneInfo[]).map(p => ({
-              ...p,
-              workspaceId: msg.workspaceId,
-            }));
-            return [...next, ...incoming];
-          });
-          if (msg.payload.containerFrame) {
-            setContainerFrames(prev => ({
-              ...prev,
-              [msg.workspaceId]: msg.payload.containerFrame,
-            }));
-          }
-          break;
-        case 'surface.active':
-          setActiveSurfaceId(msg.surfaceId);
-          setActiveWorkspaceId(msg.workspaceId);
-          break;
-        case 'output':
-          outputCbRef.current(msg.surfaceId, msg.payload.data);
-          break;
-        case 'notifications':
-          setNotifications(prev => {
-            const existingIds = new Set(prev.map(n => n.id));
-            const newOnes = msg.payload.notifications.filter((n: CmuxNotification) => !existingIds.has(n.id));
-            return [...newOnes, ...prev];
-          });
-          notificationCbRef.current(msg.payload.notifications);
-          break;
-        case 'error':
-          console.error('Relay error:', msg.payload.message);
-          break;
+    connect();
+
+    // Reconnect immediately when page becomes visible (mobile returning from background)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && !disposed) {
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+          clearTimeout(reconnectTimer);
+          connect();
+        }
       }
     };
-
-    ws.onclose = () => setStatus('disconnected');
-    ws.onerror = () => setStatus('disconnected');
+    document.addEventListener('visibilitychange', onVisible);
 
     return () => {
-      ws.close();
+      disposed = true;
+      clearTimeout(reconnectTimer);
+      document.removeEventListener('visibilitychange', onVisible);
+      wsRef.current?.close();
       wsRef.current = null;
     };
   }, [url, token, sessionId]);

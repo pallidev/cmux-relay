@@ -7,6 +7,22 @@ import type { CmuxNotification } from '@cmux-relay/shared';
 const RELAY_URL = getRelayWsUrl();
 
 export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string; onDisconnect?: () => void }) {
+  const [appHeight, setAppHeight] = useState(() =>
+    window.visualViewport ? window.visualViewport.height : window.innerHeight
+  );
+
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => setAppHeight(vv.height);
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  }, []);
+
   const [token, setToken] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     const urlToken = params.get('token');
@@ -33,21 +49,58 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
     sendInput,
     sendResize,
     onOutput,
+    onNotifications,
   } = useRelay(relayUrl ? { url: relayUrl } : { url: '' });
 
   const [toasts, setToasts] = useState<CmuxNotification[]>([]);
-
-  useEffect(() => {
-    if (status === 'disconnected') onDisconnect?.();
-  }, [status, onDisconnect]);
   const prevNotifCount = useRef(0);
   const userSelectedRef = useRef(false);
   const activeSurfaceIdRef = useRef<string | null>(null);
+  const pendingBrowserNotifs = useRef<CmuxNotification[]>([]);
+
+  // Notify parent only if still disconnected after a grace period (auto-reconnect handles it)
+  const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (status === 'disconnected' && !disconnectTimerRef.current) {
+      disconnectTimerRef.current = setTimeout(() => {
+        onDisconnect?.();
+        disconnectTimerRef.current = null;
+      }, 15000);
+    } else if (status !== 'disconnected' && disconnectTimerRef.current) {
+      clearTimeout(disconnectTimerRef.current);
+      disconnectTimerRef.current = null;
+    }
+  }, [status, onDisconnect]);
 
   // Only process output for the selected surface
   onOutput(useCallback((surfaceId: string, data: string) => {
     if (surfaceId === activeSurfaceIdRef.current) {
       writeToTerminal(surfaceId, data);
+    }
+  }, []));
+
+  // Browser notification permission request on connect
+  useEffect(() => {
+    if (status === 'connected' && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().then((p) => {
+        if (p === 'granted' && pendingBrowserNotifs.current.length > 0) {
+          for (const n of pendingBrowserNotifs.current) {
+            new Notification(n.title, { body: n.subtitle ? `${n.subtitle}: ${n.body}` : n.body, tag: n.id });
+          }
+          pendingBrowserNotifs.current = [];
+        }
+      });
+    }
+  }, [status]);
+
+  // Browser notification callback
+  onNotifications(useCallback((newNotifs: CmuxNotification[]) => {
+    for (const n of newNotifs) {
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification(n.title, { body: n.subtitle ? `${n.subtitle}: ${n.body}` : n.body, tag: n.id });
+      } else {
+        pendingBrowserNotifs.current.push(n);
+      }
     }
   }, []));
 
@@ -181,7 +234,7 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
 
   return (
     <>
-      <div className="mobile-app">
+      <div className="mobile-app" style={{ height: `${appHeight}px` }}>
         {/* Header */}
         <header className="mobile-header">
           <button
@@ -232,8 +285,7 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
           {activeSurface ? (
             <Terminal
               surfaceId={activeSurface.id}
-              cols={wsPanes.find(p => p.selectedSurfaceId === activeSurface.id)?.columns}
-              rows={wsPanes.find(p => p.selectedSurfaceId === activeSurface.id)?.rows}
+              autoFit
               onInput={(data) => sendInput(activeSurface.id, data)}
               onResize={(cols, rows) => sendResize(activeSurface.id, cols, rows)}
             />

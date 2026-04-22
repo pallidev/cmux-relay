@@ -254,13 +254,17 @@ async function handleClientMessage(
         });
         // Send current terminal content with scrollback history
         if (surface.type === 'terminal' && deps.cmux) {
-          const text = await deps.cmux.readTerminalText(msg.surfaceId, true);
-          if (text) {
-            send(ws, {
-              type: 'output',
-              surfaceId: msg.surfaceId,
-              payload: { data: Buffer.from(text).toString('base64') },
-            });
+          try {
+            const text = await deps.cmux.readTerminalText(msg.surfaceId, true);
+            if (text) {
+              send(ws, {
+                type: 'output',
+                surfaceId: msg.surfaceId,
+                payload: { data: Buffer.from(text).toString('base64') },
+              });
+            }
+          } catch {
+            // surface may have been closed
           }
         }
       }

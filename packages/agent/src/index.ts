@@ -30,7 +30,7 @@ const cmuxSocket = getArg('--socket') || '';
 const tlsCert = getArg('--tls-cert') || process.env.CMUX_RELAY_TLS_CERT || '';
 const tlsKey = getArg('--tls-key') || process.env.CMUX_RELAY_TLS_KEY || '';
 const apiToken = getArg('--token') || process.env.CMUX_RELAY_TOKEN || '';
-const relayUrl = getArg('--relay-url') || process.env.CMUX_RELAY_URL || 'wss://relay.jaz.duckdns.org/ws/agent';
+const relayUrl = getArg('--relay-url') || process.env.CMUX_RELAY_URL || 'wss://relay.gateway.myaddr.io/ws/agent';
 
 const AUTH_DIR = join(homedir(), '.cmux-relay');
 const AUTH_FILE = join(AUTH_DIR, 'auth.json');
@@ -358,7 +358,7 @@ async function runCloudMode(savedAuth: AuthData | null) {
   console.log('cmux connected!');
 
   const token = apiToken || savedAuth?.token || undefined;
-  const url = relayUrl || savedAuth?.relayUrl || 'wss://relay.jaz.duckdns.org/ws/agent';
+  const url = relayUrl || savedAuth?.relayUrl || 'wss://relay.gateway.myaddr.io/ws/agent';
 
   console.log('Connecting to relay server...');
   const relay = new RelayConnection(url, token);
@@ -380,7 +380,7 @@ async function runCloudMode(savedAuth: AuthData | null) {
   });
 
   const sessionId = await relay.connect();
-  const webUrl = process.env.CMUX_WEB_URL || 'https://cmux.jaz.duckdns.org';
+  const webUrl = process.env.CMUX_WEB_URL || 'https://cmux.gateway.myaddr.io';
   const sessionUrl = `${webUrl}/s/${sessionId}`;
   console.log(`\n  Session ready: ${sessionUrl}\n`);
   openUrl(webUrl);

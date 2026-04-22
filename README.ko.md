@@ -49,7 +49,7 @@ npx cmux-relay-agent
 모든 기기에서 접속:
 
 ```
-https://cmux.jaz.duckdns.org
+https://cmux.gateway.myaddr.io
 ```
 
 **필요한 것:** cmux, Node.js 20+. 그 외에는 아무것도 필요 없습니다.
@@ -203,7 +203,7 @@ npx cmux-relay-agent [옵션]
 
 | 플래그 | 환경변수 | 기본값 | 설명 |
 |--------|---------|--------|------|
-| `--relay-url` | `CMUX_RELAY_URL` | `wss://relay.jaz.duckdns.org/ws/agent` | 릴레이 서버 URL |
+| `--relay-url` | `CMUX_RELAY_URL` | `wss://relay.gateway.myaddr.io/ws/agent` | 릴레이 서버 URL |
 | `--token` | `CMUX_RELAY_TOKEN` | — | API 토큰 (페어링 후 자동 저장) |
 | `--local` | — | — | 로컬 모드 실행 (직접 WebSocket) |
 | `--port` | `CMUX_RELAY_PORT` | `8080` | 로컬 모드 서버 포트 |

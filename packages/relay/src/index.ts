@@ -32,7 +32,7 @@ try {
 const PORT = parseInt(process.env.RELAY_PORT ?? '3001', 10);
 const HOST = process.env.RELAY_HOST ?? '0.0.0.0';
 const DB_PATH = process.env.RELAY_DB_PATH ?? './relay.db';
-const WEB_URL = process.env.WEB_URL || 'https://cmux.jaz.duckdns.org';
+const WEB_URL = process.env.WEB_URL || 'https://cmux.gateway.myaddr.io';
 
 const db = initDatabase(DB_PATH);
 const registry = new SessionRegistry();

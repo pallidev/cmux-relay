@@ -6,7 +6,7 @@ import { getAuthorizationUrl, handleCallback } from './github-oauth.js';
 import type { SessionRegistry } from './session-registry.js';
 import type { PairingRegistry } from './pairing-registry.js';
 
-const WEB_URL = process.env.WEB_URL || 'https://cmux.jaz.duckdns.org';
+const WEB_URL = process.env.WEB_URL || 'https://cmux.gateway.myaddr.io';
 const STATES = new Map<string, { expires: number; pairingCode?: string }>();
 
 export async function handleHttpRequest(

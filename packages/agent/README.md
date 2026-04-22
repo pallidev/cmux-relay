@@ -16,7 +16,7 @@ That's it. The agent will:
 
 On subsequent runs, the saved token is reused — just run and go.
 
-Access your terminal from any device at **https://cmux.jaz.duckdns.org**
+Access your terminal from any device at **https://cmux.gateway.myaddr.io**
 
 ## Requirements
 
@@ -31,7 +31,7 @@ npx cmux-relay-agent [options]
 
 | Flag | Env Variable | Default | Description |
 |------|-------------|---------|-------------|
-| `--relay-url <url>` | `CMUX_RELAY_URL` | `wss://relay.jaz.duckdns.org/ws/agent` | Relay server URL |
+| `--relay-url <url>` | `CMUX_RELAY_URL` | `wss://relay.gateway.myaddr.io/ws/agent` | Relay server URL |
 | `--token <token>` | `CMUX_RELAY_TOKEN` | — | API token (auto-saved after pairing) |
 | `--local` | — | — | Run in local mode (direct WebSocket, no relay) |
 | `--port <port>` | `CMUX_RELAY_PORT` | `8080` | Local mode server port |

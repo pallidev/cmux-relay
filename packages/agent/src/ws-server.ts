@@ -252,10 +252,10 @@ async function handleClientMessage(
           workspaceId: surface.workspaceId,
           payload: { surfaces: deps.store.getSurfacesForWorkspace(surface.workspaceId) },
         });
-        // Send current terminal content with scrollback history
+        // Send current terminal content (visible screen only — scrollback is too large for mobile)
         if (surface.type === 'terminal' && deps.cmux) {
           try {
-            const text = await deps.cmux.readTerminalText(msg.surfaceId, true);
+            const text = await deps.cmux.readTerminalText(msg.surfaceId, false);
             if (text) {
               send(ws, {
                 type: 'output',

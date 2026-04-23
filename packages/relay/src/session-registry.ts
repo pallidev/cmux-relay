@@ -65,7 +65,7 @@ export class SessionRegistry {
     if (session) {
       const idx = session.clients.findIndex(c => c.ws === ws);
       if (idx >= 0) session.clients.splice(idx, 1);
-      if (session.agentWs.readyState === ws.OPEN) {
+      if (session.agentWs.readyState === WebSocket.OPEN) {
         session.agentWs.send(encodeMessage({ type: 'client.disconnected' }));
       }
     }
@@ -100,7 +100,7 @@ export class SessionRegistry {
     if (msg.type === 'agent.data') {
       const payload = JSON.stringify(msg.payload);
       for (const client of session.clients) {
-        if (client.ws.readyState === ws.OPEN) {
+        if (client.ws.readyState === WebSocket.OPEN) {
           client.ws.send(payload);
         }
       }
@@ -118,7 +118,7 @@ export class SessionRegistry {
 
     const clientMsg = decodeMessage<ClientOutgoing>(rawData);
     const relayMsg: RelayToAgent = { type: 'client.data', payload: clientMsg };
-    if (session.agentWs.readyState === ws.OPEN) {
+    if (session.agentWs.readyState === WebSocket.OPEN) {
       session.agentWs.send(encodeMessage(relayMsg));
     }
   }

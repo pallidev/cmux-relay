@@ -205,6 +205,11 @@ async function runLocalMode() {
           workspaceId: w.id,
         }));
         store.updateSurfaces(w.id, surfInfos);
+        store.broadcastToClients({
+          type: 'surfaces',
+          workspaceId: w.id,
+          payload: { surfaces: surfInfos },
+        });
       }
 
       store.broadcastToClients({
@@ -287,33 +292,35 @@ async function runLocalMode() {
   }
 
   const lastOutput = new Map<string, string>();
+  let pollRunning = false;
   const pollTerminal = async () => {
+    if (pollRunning) return;
+    pollRunning = true;
     try {
       if (!cmux.isConnected()) return;
       const activeIds = store.getActiveSurfaceIds();
       if (activeIds.size === 0) return;
-      const workspaces = await cmux.listWorkspaces();
-      for (const w of workspaces) {
-        const surfaces = await cmux.listSurfaces(w.id);
-        for (const surf of surfaces) {
-          if (surf.type === 'terminal' && activeIds.has(surf.id)) {
-            const text = await cmux.readTerminalText(surf.id);
-            if (text) {
-              const b64 = Buffer.from(text).toString('base64');
-              if (lastOutput.get(surf.id) !== b64) {
-                lastOutput.set(surf.id, b64);
-                store.sendToClientsWithSurface(surf.id, {
-                  type: 'output',
-                  surfaceId: surf.id,
-                  payload: { data: b64 },
-                });
-              }
+      for (const surfaceId of activeIds) {
+        const surface = store.getSurface(surfaceId);
+        if (surface?.type === 'terminal') {
+          const text = await cmux.readTerminalText(surfaceId);
+          if (text) {
+            const b64 = Buffer.from(text).toString('base64');
+            if (lastOutput.get(surfaceId) !== b64) {
+              lastOutput.set(surfaceId, b64);
+              store.sendToClientsWithSurface(surfaceId, {
+                type: 'output',
+                surfaceId,
+                payload: { data: b64 },
+              });
             }
           }
         }
       }
     } catch {
       // ignore polling errors
+    } finally {
+      pollRunning = false;
     }
   };
   const pollInterval = setInterval(pollTerminal, 1000);
@@ -369,13 +376,24 @@ async function runCloudMode(savedAuth: AuthData | null) {
     });
   }
 
+  let cloudActiveSurfaceId: string | null = null;
+  const lastOutput = new Map<string, string>();
+
   relay.onClientData(async (msg) => {
     const clientId = 'cloud-client';
     await handleClientMessage(
       JSON.stringify(msg),
       clientId,
       msgDeps,
-      (response) => relay.send(response),
+      (response) => {
+        relay.send(response);
+        if ((response as any).type === 'surface.active') {
+          cloudActiveSurfaceId = (response as any).surfaceId;
+        }
+        if ((response as any).type === 'output') {
+          lastOutput.set((response as any).surfaceId, (response as any).payload.data);
+        }
+      },
     );
   });
 
@@ -410,6 +428,11 @@ async function runCloudMode(savedAuth: AuthData | null) {
           workspaceId: w.id,
         }));
         store.updateSurfaces(w.id, surfInfos);
+        broadcastViaRelay({
+          type: 'surfaces',
+          workspaceId: w.id,
+          payload: { surfaces: surfInfos },
+        });
       }
 
       broadcastViaRelay({ type: 'workspaces', payload: { workspaces: store.getAllWorkspaces() } });
@@ -469,30 +492,26 @@ async function runCloudMode(savedAuth: AuthData | null) {
     console.log('Continuing without PTY capture (cmux socket API only)');
   }
 
-  const lastOutput = new Map<string, string>();
+  let pollRunning = false;
   const pollTerminal = async () => {
+    if (pollRunning) return;
+    pollRunning = true;
     try {
       if (!cmux.isConnected()) return;
-      const activeIds = store.getActiveSurfaceIds();
-      if (activeIds.size === 0) return;
-      const workspaces = await cmux.listWorkspaces();
-      for (const w of workspaces) {
-        const surfaces = await cmux.listSurfaces(w.id);
-        for (const surf of surfaces) {
-          if (surf.type === 'terminal' && activeIds.has(surf.id)) {
-            const text = await cmux.readTerminalText(surf.id);
-            if (text) {
-              const b64 = Buffer.from(text).toString('base64');
-              if (lastOutput.get(surf.id) !== b64) {
-                lastOutput.set(surf.id, b64);
-                broadcastViaRelay({ type: 'output', surfaceId: surf.id, payload: { data: b64 } });
-              }
-            }
-          }
+      const activeSurface = cloudActiveSurfaceId;
+      if (!activeSurface) return;
+      const text = await cmux.readTerminalText(activeSurface);
+      if (text) {
+        const b64 = Buffer.from(text).toString('base64');
+        if (lastOutput.get(activeSurface) !== b64) {
+          lastOutput.set(activeSurface, b64);
+          broadcastViaRelay({ type: 'output', surfaceId: activeSurface, payload: { data: b64 } });
         }
       }
     } catch {
       // ignore
+    } finally {
+      pollRunning = false;
     }
   };
   const pollInterval = setInterval(pollTerminal, 1000);

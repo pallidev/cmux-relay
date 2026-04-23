@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -153,16 +153,103 @@ export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: 
     termRef.current.resize(cols, rows);
   }, [cols, rows, fitRows]);
 
+  const [scrolledUp, setScrolledUp] = useState(false);
+
+  // Track scroll position for indicator
+  useEffect(() => {
+    const t = termRef.current;
+    if (!t) return;
+    const disp = t.onScroll(() => {
+      const buffer = t.buffer.active;
+      setScrolledUp(buffer.viewportY > 0);
+    });
+    return () => disp.dispose();
+  }, [surfaceId]);
+
+  // Touch scroll handler for mobile
+  useEffect(() => {
+    const el = containerRef.current;
+    const t = termRef.current;
+    if (!el || !t) return;
+
+    let touchStartY = 0;
+    let lastTouchY = 0;
+    let accumulated = 0;
+
+    const onTouchStart = (e: TouchEvent) => {
+      touchStartY = e.touches[0].clientY;
+      lastTouchY = touchStartY;
+      accumulated = 0;
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      const currentY = e.touches[0].clientY;
+      const delta = lastTouchY - currentY;
+      lastTouchY = currentY;
+
+      const containerH = el.offsetHeight || 1;
+      const rowHeight = t.rows > 0 ? containerH / t.rows : 17;
+      accumulated += delta;
+
+      const linesToScroll = Math.trunc(accumulated / rowHeight);
+      if (linesToScroll !== 0) {
+        t.scrollLines(-linesToScroll);
+        accumulated -= linesToScroll * rowHeight;
+      }
+    };
+
+    el.addEventListener('touchstart', onTouchStart, { passive: true });
+    el.addEventListener('touchmove', onTouchMove, { passive: true });
+
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove', onTouchMove);
+    };
+  }, [surfaceId]);
+
+  const scrollToBottom = () => {
+    termRef.current?.scrollToBottom();
+    setScrolledUp(false);
+  };
+
   return (
-    <div
-      ref={containerRef}
-      style={{
-        width: cols ? `${cols * 7.8}px` : '100%',
-        minWidth: '100%',
-        height: '100%',
-        backgroundColor: '#1e1e2e',
-        overflow: 'hidden',
-      }}
-    />
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <div
+        ref={containerRef}
+        style={{
+          width: cols ? `${cols * 7.8}px` : '100%',
+          minWidth: '100%',
+          height: '100%',
+          backgroundColor: '#1e1e2e',
+          overflow: 'hidden',
+          touchAction: 'none',
+        }}
+      />
+      {scrolledUp && (
+        <button
+          onClick={scrollToBottom}
+          style={{
+            position: 'absolute',
+            bottom: 8,
+            right: 8,
+            width: 32,
+            height: 32,
+            borderRadius: '50%',
+            border: 'none',
+            background: 'rgba(137, 180, 250, 0.8)',
+            color: '#1e1e2e',
+            fontSize: 16,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10,
+          }}
+          aria-label="Scroll to bottom"
+        >
+          ↓
+        </button>
+      )}
+    </div>
   );
 }

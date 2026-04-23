@@ -779,7 +779,7 @@ html, body, #root {
   overflow-x: auto;
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
-  touch-action: pan-x pan-y;
+  touch-action: pan-x;
   will-change: transform;
   padding-bottom: env(safe-area-inset-bottom, 0px);
   min-height: 0;

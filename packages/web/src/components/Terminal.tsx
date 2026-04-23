@@ -97,6 +97,7 @@ export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: 
     termRef.current = term;
 
     let lastB64 = '';
+    let hasWritten = false;
 
     const writeOutput = (base64Data: string) => {
       if (!termRef.current) return;
@@ -109,16 +110,21 @@ export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: 
         Uint8Array.from(bytes, (c) => c.charCodeAt(0)),
       );
 
-      const lines = text.split('\n');
-
-      if (lines.length > (t.rows || 24) * 2) {
-        t.reset();
+      if (!hasWritten) {
+        hasWritten = true;
         t.write(text);
         t.scrollToBottom();
-      } else {
-        t.write('\x1b[H\x1b[2J');
-        t.write(text);
+        return;
       }
+
+      // Push current screen into scrollback, then write new content.
+      // This lets the user scroll up to see previous screen states.
+      t.write(`\x1b[${t.rows};1H`);
+      t.write('\n'.repeat(t.rows));
+      t.write('\x1b[H');
+      t.write(text);
+      t.write('\x1b[J');
+      t.scrollToBottom();
     };
     terminalRegistry.set(surfaceId, writeOutput);
 
@@ -166,47 +172,6 @@ export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: 
     return () => disp.dispose();
   }, [surfaceId]);
 
-  // Touch scroll handler for mobile
-  useEffect(() => {
-    const el = containerRef.current;
-    const t = termRef.current;
-    if (!el || !t) return;
-
-    let touchStartY = 0;
-    let lastTouchY = 0;
-    let accumulated = 0;
-
-    const onTouchStart = (e: TouchEvent) => {
-      touchStartY = e.touches[0].clientY;
-      lastTouchY = touchStartY;
-      accumulated = 0;
-    };
-
-    const onTouchMove = (e: TouchEvent) => {
-      const currentY = e.touches[0].clientY;
-      const delta = lastTouchY - currentY;
-      lastTouchY = currentY;
-
-      const containerH = el.offsetHeight || 1;
-      const rowHeight = t.rows > 0 ? containerH / t.rows : 17;
-      accumulated += delta;
-
-      const linesToScroll = Math.trunc(accumulated / rowHeight);
-      if (linesToScroll !== 0) {
-        t.scrollLines(-linesToScroll);
-        accumulated -= linesToScroll * rowHeight;
-      }
-    };
-
-    el.addEventListener('touchstart', onTouchStart, { passive: true });
-    el.addEventListener('touchmove', onTouchMove, { passive: true });
-
-    return () => {
-      el.removeEventListener('touchstart', onTouchStart);
-      el.removeEventListener('touchmove', onTouchMove);
-    };
-  }, [surfaceId]);
-
   const scrollToBottom = () => {
     termRef.current?.scrollToBottom();
     setScrolledUp(false);
@@ -222,7 +187,6 @@ export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: 
           height: '100%',
           backgroundColor: '#1e1e2e',
           overflow: 'hidden',
-          touchAction: 'none',
         }}
       />
       {scrolledUp && (

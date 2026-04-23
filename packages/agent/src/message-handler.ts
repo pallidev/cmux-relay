@@ -63,7 +63,7 @@ export async function handleClientMessage(
         });
         if (surface.type === 'terminal' && deps.cmux) {
           try {
-            const text = await deps.cmux.readTerminalText(msg.surfaceId, true);
+            const text = await deps.cmux.readTerminalText(msg.surfaceId, false);
             if (text) {
               send({
                 type: 'output',

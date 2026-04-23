@@ -114,6 +114,52 @@ describe('SessionStore', () => {
       assert.equal(store.getSurface('nonexistent'), undefined);
     });
 
+    describe('getAllSurfaces', () => {
+      it('returns empty iterator when no surfaces', () => {
+        const entries = [...store.getAllSurfaces()];
+        assert.deepEqual(entries, []);
+      });
+
+      it('returns all surfaces across workspaces', () => {
+        store.updateSurfaces('ws1', [
+          { id: 's1', title: 'T1', type: 'terminal', workspaceId: 'ws1' },
+          { id: 's2', title: 'T2', type: 'terminal', workspaceId: 'ws1' },
+        ]);
+        store.updateSurfaces('ws2', [
+          { id: 's3', title: 'T3', type: 'terminal', workspaceId: 'ws2' },
+        ]);
+        const entries = [...store.getAllSurfaces()];
+        assert.equal(entries.length, 3);
+        const ids = entries.map(([id]) => id).sort();
+        assert.deepEqual(ids, ['s1', 's2', 's3']);
+      });
+
+      it('returns updated surfaces after workspace update', () => {
+        store.updateSurfaces('ws1', [
+          { id: 's1', title: 'Old', type: 'terminal', workspaceId: 'ws1' },
+        ]);
+        store.updateSurfaces('ws1', [
+          { id: 's1', title: 'Updated', type: 'terminal', workspaceId: 'ws1' },
+          { id: 's2', title: 'New', type: 'terminal', workspaceId: 'ws1' },
+        ]);
+        const entries = [...store.getAllSurfaces()];
+        assert.equal(entries.length, 2);
+        const s1 = entries.find(([id]) => id === 's1');
+        assert.ok(s1);
+        assert.equal(s1[1].title, 'Updated');
+      });
+
+      it('returns entries as [id, SurfaceInfo] pairs', () => {
+        store.updateSurfaces('ws1', [
+          { id: 's1', title: 'MyTerm', type: 'terminal', workspaceId: 'ws1' },
+        ]);
+        const entries = [...store.getAllSurfaces()];
+        assert.equal(entries[0][0], 's1');
+        assert.equal(entries[0][1].id, 's1');
+        assert.equal(entries[0][1].type, 'terminal');
+      });
+    });
+
     it('clears surfaces for a workspace with empty array', () => {
       store.updateSurfaces('ws1', [
         { id: 's1', title: 'T1', type: 'terminal', workspaceId: 'ws1' },

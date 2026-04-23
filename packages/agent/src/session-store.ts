@@ -52,6 +52,10 @@ export class SessionStore {
     return this.surfaces.get(surfaceId);
   }
 
+  getAllSurfaces(): IterableIterator<[string, SurfaceInfo]> {
+    return this.surfaces.entries();
+  }
+
   // ─── Panes (per workspace) ───
 
   updatePanesForWorkspace(workspaceId: string, panes: PaneInfo[], containerFrame: FrameRect): void {

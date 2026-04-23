@@ -376,7 +376,6 @@ async function runCloudMode(savedAuth: AuthData | null) {
     });
   }
 
-  let cloudActiveSurfaceId: string | null = null;
   const lastOutput = new Map<string, string>();
 
   relay.onClientData(async (msg) => {
@@ -387,9 +386,6 @@ async function runCloudMode(savedAuth: AuthData | null) {
       msgDeps,
       (response) => {
         relay.send(response);
-        if ((response as any).type === 'surface.active') {
-          cloudActiveSurfaceId = (response as any).surfaceId;
-        }
         if ((response as any).type === 'output') {
           lastOutput.set((response as any).surfaceId, (response as any).payload.data);
         }
@@ -498,18 +494,19 @@ async function runCloudMode(savedAuth: AuthData | null) {
     pollRunning = true;
     try {
       if (!cmux.isConnected()) return;
-      const activeSurface = cloudActiveSurfaceId;
-      if (!activeSurface) return;
-      const text = await cmux.readTerminalText(activeSurface);
-      if (text) {
-        const b64 = Buffer.from(text).toString('base64');
-        if (lastOutput.get(activeSurface) !== b64) {
-          lastOutput.set(activeSurface, b64);
-          broadcastViaRelay({ type: 'output', surfaceId: activeSurface, payload: { data: b64 } });
+      for (const [, surf] of store.getAllSurfaces()) {
+        if (surf.type !== 'terminal') continue;
+        const text = await cmux.readTerminalText(surf.id);
+        if (text) {
+          const b64 = Buffer.from(text).toString('base64');
+          if (lastOutput.get(surf.id) !== b64) {
+            lastOutput.set(surf.id, b64);
+            broadcastViaRelay({ type: 'output', surfaceId: surf.id, payload: { data: b64 } });
+          }
         }
       }
     } catch {
-      // ignore
+      // ignore polling errors
     } finally {
       pollRunning = false;
     }

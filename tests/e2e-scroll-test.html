@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>Terminal Scroll E2E Test</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; overflow: hidden; background: #1e1e2e; }
+    #terminal-container { width: 100%; height: 100%; }
+    #results { position: fixed; top: 0; left: 0; right: 0; z-index: 100; background: #111; color: #0f0; font: 12px monospace; padding: 8px; max-height: 100%; overflow-y: auto; }
+    .pass { color: #0f0; }
+    .fail { color: #f00; }
+  </style>
+</head>
+<body>
+  <div id="results"></div>
+  <div id="terminal-container"></div>
+  <script type="module">
+    import { Terminal } from 'https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/+esm';
+
+    const resultsEl = document.getElementById('results');
+    const results = [];
+
+    function log(msg, pass) {
+      results.push({ msg, pass });
+      const el = document.createElement('div');
+      el.className = pass ? 'pass' : 'fail';
+      el.textContent = `${pass ? '✓' : '✗'} ${msg}`;
+      resultsEl.appendChild(el);
+    }
+
+    const term = new Terminal({
+      scrollback: 10000,
+      convertEol: true,
+      theme: { background: '#1e1e2e' },
+    });
+    term.open(document.getElementById('terminal-container'));
+    term.resize(80, 24);
+
+    // Replicate production writeOutput logic
+    let lastB64 = '';
+    let hasWritten = false;
+
+    function writeOutput(base64Data) {
+      if (base64Data === lastB64) return;
+      lastB64 = base64Data;
+
+      const bytes = atob(base64Data);
+      const text = new TextDecoder().decode(Uint8Array.from(bytes, c => c.charCodeAt(0)));
+
+      if (!hasWritten) {
+        hasWritten = true;
+        term.write(text);
+        term.scrollToBottom();
+        return;
+      }
+
+      term.write(`\x1b[${term.rows};1H`);
+      term.write('\n'.repeat(term.rows));
+      term.write('\x1b[H');
+      term.write(text);
+      term.write('\x1b[J');
+      term.scrollToBottom();
+    }
+
+    function makeContent(label) {
+      const lines = [];
+      for (let i = 0; i < 20; i++) {
+        lines.push(`[${label}] Line ${i + 1}: test content abcdefghijklmnop`);
+      }
+      lines.push('$ ');
+      return lines.join('\n');
+    }
+
+    async function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    async function runTests() {
+      // Test 1: First write renders content
+      writeOutput(btoa(makeContent('v1')));
+      await delay(100);
+      const buf1 = term.buffer.active;
+      log('Test 1: First write creates buffer', buf1.length >= 24);
+
+      // Test 2: Second write creates scrollback
+      writeOutput(btoa(makeContent('v2')));
+      await delay(100);
+      const len2 = term.buffer.active.length;
+      const hasScrollback = len2 > term.rows;
+      log(`Test 2: Second write creates scrollback (length=${len2}, rows=${term.rows})`, hasScrollback);
+
+      // Test 3: Third write accumulates more scrollback
+      writeOutput(btoa(makeContent('v3')));
+      await delay(100);
+      const len3 = term.buffer.active.length;
+      const moreScrollback = len3 > len2;
+      log(`Test 3: Third write adds more scrollback (${len2} → ${len3})`, moreScrollback);
+
+      // Test 4: Viewport is at bottom after write
+      const vy4 = term.buffer.active.viewportY;
+      const expected4 = term.buffer.active.length - term.rows;
+      const atBottom = vy4 === expected4;
+      log(`Test 4: Viewport at bottom (viewportY=${vy4}, expected=${expected4})`, atBottom);
+
+      // Test 5: scrollLines(-N) scrolls up (decreases viewportY)
+      const beforeY = term.buffer.active.viewportY;
+      term.scrollLines(-5);
+      await delay(50);
+      const afterY = term.buffer.active.viewportY;
+      const scrolledUp = afterY < beforeY;
+      log(`Test 5: scrollLines(-5) scrolls up (${beforeY} → ${afterY})`, scrolledUp);
+
+      // Test 6: scrollToBottom returns to bottom
+      term.scrollToBottom();
+      await delay(50);
+      const buf6 = term.buffer.active;
+      const backToBottom = buf6.viewportY === buf6.length - term.rows;
+      log('Test 6: scrollToBottom returns to bottom', backToBottom);
+
+      // Test 7: Dedup - same content is not re-written
+      const lenBefore = term.buffer.active.length;
+      writeOutput(btoa(makeContent('v3'))); // Same as last write
+      await delay(50);
+      const noChange = term.buffer.active.length === lenBefore;
+      log(`Test 7: Dedup prevents re-write (length stays ${lenBefore})`, noChange);
+
+      // Test 8: Scrolled-up state detection via onScroll
+      let scrolledState = false;
+      const scrollDisp = term.onScroll((vy) => {
+        scrolledState = vy < term.buffer.active.length - term.rows;
+      });
+      term.scrollLines(-3);
+      await delay(50);
+      log(`Test 8: onScroll detects scrolled-up state`, scrolledState);
+      scrollDisp.dispose();
+
+      // Test 9: Multiple rapid updates don't break
+      for (let i = 0; i < 10; i++) {
+        writeOutput(btoa(makeContent(`rapid-${i}`)));
+      }
+      await delay(200);
+      const bufFinal = term.buffer.active;
+      const stableAfterRapid = bufFinal.length > 0 && bufFinal.viewportY === bufFinal.length - term.rows;
+      log(`Test 9: Rapid updates stable (length=${bufFinal.length})`, stableAfterRapid);
+
+      // Test 10: Content visible at current viewport
+      const topLine = bufFinal.getLine(bufFinal.viewportY)?.translateToString(true) || '';
+      const hasContent = topLine.includes('rapid-9');
+      log(`Test 10: Latest content visible (top line includes "rapid-9")`, hasContent);
+
+      // Summary
+      const passed = results.filter(r => r.pass).length;
+      const failed = results.filter(r => !r.pass).length;
+      const summary = document.createElement('div');
+      summary.style.cssText = 'margin-top: 8px; font-weight: bold; font-size: 14px;';
+      summary.className = failed === 0 ? 'pass' : 'fail';
+      summary.textContent = `\nResults: ${passed}/${results.length} passed, ${failed} failed`;
+      resultsEl.appendChild(summary);
+
+      // Expose for programmatic check
+      window.__testResults = { passed, failed, total: results.length, results };
+    }
+
+    runTests();
+  </script>
+</body>
+</html>

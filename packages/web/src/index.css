@@ -776,11 +776,8 @@ html, body, #root {
 /* Mobile terminal area */
 .mobile-terminal-area {
   flex: 1;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: hidden;
   -webkit-overflow-scrolling: touch;
-  touch-action: pan-x;
-  will-change: transform;
   padding-bottom: env(safe-area-inset-bottom, 0px);
   min-height: 0;
 }

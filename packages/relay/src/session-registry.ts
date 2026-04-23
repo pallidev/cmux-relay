@@ -99,6 +99,8 @@ export class SessionRegistry {
 
     if (msg.type === 'agent.data') {
       const payload = JSON.stringify(msg.payload);
+      const clientCount = session.clients.filter(c => c.ws.readyState === WebSocket.OPEN).length;
+      console.log(`[relay] Forwarding ${(msg.payload as any).type} to ${clientCount} clients (session=${sessionId})`);
       for (const client of session.clients) {
         if (client.ws.readyState === WebSocket.OPEN) {
           client.ws.send(payload);

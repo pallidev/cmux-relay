@@ -24,7 +24,9 @@ export function RelaySessionLayout({ sessionId, onDisconnect }: { sessionId: str
 
 function RelaySessionInner({ wsUrl, onDisconnect }: { wsUrl: string; onDisconnect?: () => void }) {
   const [showSidebar, setShowSidebar] = useState(true);
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
+    () => localStorage.getItem('cmux-relay-last-workspace')
+  );
   const [showNotifPanel, setShowNotifPanel] = useState(false);
   const [toasts, setToasts] = useState<CmuxNotification[]>([]);
   const prevNotifCount = useRef(0);
@@ -91,7 +93,22 @@ function RelaySessionInner({ wsUrl, onDisconnect }: { wsUrl: string; onDisconnec
   }, []));
 
   useEffect(() => {
-    if (selectedWorkspaceId) return;
+    if (selectedWorkspaceId) {
+      // Verify saved workspace still exists
+      if (workspaces.length > 0 && !workspaces.some(w => w.id === selectedWorkspaceId)) {
+        const firstWsId = workspaces[0].id;
+        setSelectedWorkspaceId(firstWsId);
+        return;
+      }
+      // Still select surfaces for the saved workspace
+      if (panes.length > 0) {
+        const wsPanes = panes.filter(p => p.workspaceId === selectedWorkspaceId);
+        for (const pane of wsPanes) {
+          selectSurface(pane.selectedSurfaceId);
+        }
+      }
+      return;
+    }
     if (workspaces.length === 0 || panes.length === 0) return;
     const firstWsId = workspaces[0].id;
     setSelectedWorkspaceId(firstWsId);
@@ -100,6 +117,13 @@ function RelaySessionInner({ wsUrl, onDisconnect }: { wsUrl: string; onDisconnec
       selectSurface(pane.selectedSurfaceId);
     }
   }, [panes, workspaces, selectedWorkspaceId, selectSurface]);
+
+  // Persist workspace selection
+  useEffect(() => {
+    if (selectedWorkspaceId) {
+      localStorage.setItem('cmux-relay-last-workspace', selectedWorkspaceId);
+    }
+  }, [selectedWorkspaceId]);
 
   const handleSelectWorkspace = (workspaceId: string) => {
     setSelectedWorkspaceId(workspaceId);

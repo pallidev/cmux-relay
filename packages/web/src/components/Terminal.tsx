@@ -27,6 +27,7 @@ export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: 
   const onInputRef = useRef(onInput);
   const onResizeRef = useRef(onResize);
   const colsRef = useRef(cols);
+  const isAtBottomRef = useRef(true);
   colsRef.current = cols;
 
   onInputRef.current = onInput;
@@ -98,6 +99,7 @@ export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: 
 
     let lastB64 = '';
     let hasWritten = false;
+    let previousText = '';
 
     const writeOutput = (base64Data: string) => {
       if (!termRef.current) return;
@@ -112,19 +114,25 @@ export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: 
 
       if (!hasWritten) {
         hasWritten = true;
+        previousText = text;
         t.write(text);
         t.scrollToBottom();
         return;
       }
 
-      // Push current screen into scrollback, then write new content.
-      // This lets the user scroll up to see previous screen states.
-      t.write(`\x1b[${t.rows};1H`);
-      t.write('\n'.repeat(t.rows));
-      t.write('\x1b[H');
+      // Push previous screen content into scrollback, then write new content.
+      if (previousText) {
+        t.write(`\x1b[${t.rows};1H`);
+        t.write(previousText + '\n');
+        t.write('\x1b[H');
+      }
       t.write(text);
       t.write('\x1b[J');
-      t.scrollToBottom();
+      previousText = text;
+
+      if (isAtBottomRef.current) {
+        t.scrollToBottom();
+      }
     };
     terminalRegistry.set(surfaceId, writeOutput);
 
@@ -160,6 +168,45 @@ export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: 
   }, [cols, rows, fitRows]);
 
   const [scrolledUp, setScrolledUp] = useState(false);
+  const [scrollPercent, setScrollPercent] = useState(100);
+  const [scrollPanelOpen, setScrollPanelOpen] = useState(false);
+
+  // Custom touch scroll handler for reliable mobile scrolling
+  useEffect(() => {
+    const container = containerRef.current;
+    const t = termRef.current;
+    if (!container || !t) return;
+
+    let lastTouchY = 0;
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      lastTouchY = e.touches[0].clientY;
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      const currentY = e.touches[0].clientY;
+      const delta = lastTouchY - currentY;
+      lastTouchY = currentY;
+      if (Math.abs(delta) > 0) {
+        t.scrollLines(Math.round(delta / 10) || (delta > 0 ? 1 : -1));
+        e.preventDefault();
+      }
+    };
+
+    const onTouchEnd = () => {};
+
+    container.addEventListener('touchstart', onTouchStart, { passive: true });
+    container.addEventListener('touchmove', onTouchMove, { passive: false });
+    container.addEventListener('touchend', onTouchEnd, { passive: true });
+
+    return () => {
+      container.removeEventListener('touchstart', onTouchStart);
+      container.removeEventListener('touchmove', onTouchMove);
+      container.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [surfaceId]);
 
   // Track scroll position for indicator
   useEffect(() => {
@@ -167,15 +214,49 @@ export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: 
     if (!t) return;
     const disp = t.onScroll(() => {
       const buffer = t.buffer.active;
-      setScrolledUp(buffer.viewportY > 0);
+      const maxScroll = buffer.length - t.rows;
+      const atBottom = maxScroll <= 0 || buffer.viewportY >= maxScroll - 1;
+      isAtBottomRef.current = atBottom;
+      setScrolledUp(!atBottom);
+      setScrollPercent(maxScroll > 0 ? Math.round((buffer.viewportY / maxScroll) * 100) : 100);
     });
     return () => disp.dispose();
   }, [surfaceId]);
 
+  const scrollUp = () => termRef.current?.scrollLines(-termRef.current.rows);
+  const scrollDown = () => {
+    const t = termRef.current;
+    if (!t) return;
+    const maxScroll = t.buffer.active.length - t.rows;
+    if (t.buffer.active.viewportY + t.rows >= maxScroll) {
+      isAtBottomRef.current = true;
+      t.scrollToBottom();
+    } else {
+      t.scrollLines(t.rows);
+    }
+  };
+  const scrollToTop = () => termRef.current?.scrollToTop();
   const scrollToBottom = () => {
+    isAtBottomRef.current = true;
     termRef.current?.scrollToBottom();
     setScrolledUp(false);
   };
+
+  const btnStyle = (size = 32): React.CSSProperties => ({
+    width: size,
+    height: size,
+    borderRadius: '50%',
+    border: 'none',
+    background: 'rgba(137, 180, 250, 0.75)',
+    color: '#1e1e2e',
+    fontSize: 15,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    lineHeight: 1,
+    padding: 0,
+  });
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -187,33 +268,54 @@ export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: 
           height: '100%',
           backgroundColor: '#1e1e2e',
           overflow: 'hidden',
+          touchAction: 'pan-y',
         }}
       />
-      {scrolledUp && (
-        <button
-          onClick={scrollToBottom}
-          style={{
-            position: 'absolute',
-            bottom: 8,
-            right: 8,
-            width: 32,
-            height: 32,
-            borderRadius: '50%',
-            border: 'none',
-            background: 'rgba(137, 180, 250, 0.8)',
-            color: '#1e1e2e',
-            fontSize: 16,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 10,
-          }}
-          aria-label="Scroll to bottom"
-        >
-          ↓
-        </button>
-      )}
+      {/* Scroll controls - collapsible */}
+      <div style={{
+        position: 'absolute',
+        right: 6,
+        top: '50%',
+        transform: 'translateY(-50%)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 3,
+        zIndex: 10,
+        alignItems: 'center',
+      }}>
+        {scrollPanelOpen ? (
+          <>
+            <button onClick={scrollToTop} style={btnStyle()} aria-label="Scroll to top">⇈</button>
+            <button onClick={scrollUp} style={btnStyle()} aria-label="Scroll up">↑</button>
+            <div style={{
+              width: 4,
+              height: 20,
+              borderRadius: 2,
+              background: 'rgba(137, 180, 250, 0.3)',
+              position: 'relative',
+              overflow: 'hidden',
+            }}>
+              <div style={{
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                height: `${scrollPercent}%`,
+                minHeight: 4,
+                background: 'rgba(137, 180, 250, 0.8)',
+                borderRadius: 2,
+                transition: 'height 0.1s',
+              }} />
+            </div>
+            <button onClick={scrollDown} style={btnStyle()} aria-label="Scroll down">↓</button>
+            <button onClick={scrollToBottom} style={btnStyle()} aria-label="Scroll to bottom">⇊</button>
+            <button onClick={() => setScrollPanelOpen(false)} style={{ ...btnStyle(), background: 'rgba(69, 71, 90, 0.75)', color: '#cdd6f4' }} aria-label="Close scroll panel">✕</button>
+          </>
+        ) : (
+          <button onClick={() => setScrollPanelOpen(true)} style={btnStyle(28)} aria-label="Open scroll controls">
+            ⇅
+          </button>
+        )}
+      </div>
     </div>
   );
 }

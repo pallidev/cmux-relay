@@ -27,7 +27,9 @@ export function Layout() {
   });
   const [submitted, setSubmitted] = useState(() => !!token);
   const [showSidebar, setShowSidebar] = useState(true);
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
+    () => localStorage.getItem('cmux-relay-last-workspace')
+  );
 
   const {
     status,
@@ -97,7 +99,22 @@ export function Layout() {
 
   // Auto-select first workspace with panes on initial load
   useEffect(() => {
-    if (selectedWorkspaceId) return;
+    if (selectedWorkspaceId) {
+      // Verify saved workspace still exists
+      if (workspaces.length > 0 && !workspaces.some(w => w.id === selectedWorkspaceId)) {
+        const firstWsId = workspaces[0].id;
+        setSelectedWorkspaceId(firstWsId);
+        return;
+      }
+      // Still select surfaces for the saved workspace
+      if (panes.length > 0) {
+        const wsPanes = panes.filter(p => p.workspaceId === selectedWorkspaceId);
+        for (const pane of wsPanes) {
+          selectSurface(pane.selectedSurfaceId);
+        }
+      }
+      return;
+    }
     if (workspaces.length === 0 || panes.length === 0) return;
 
     const firstWsId = workspaces[0].id;
@@ -109,6 +126,13 @@ export function Layout() {
       selectSurface(pane.selectedSurfaceId);
     }
   }, [panes, workspaces, selectedWorkspaceId, selectSurface]);
+
+  // Persist workspace selection
+  useEffect(() => {
+    if (selectedWorkspaceId) {
+      localStorage.setItem('cmux-relay-last-workspace', selectedWorkspaceId);
+    }
+  }, [selectedWorkspaceId]);
 
   // Mobile: delegate to MobileLayout after all hooks are called
   if (isMobile) return <MobileLayout />;

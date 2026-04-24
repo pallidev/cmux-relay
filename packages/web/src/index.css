@@ -675,6 +675,10 @@ html, body, #root {
 }
 
 /* ── Mobile Layout ──────────────────────────────────────────── */
+.xterm-viewport {
+  -webkit-overflow-scrolling: touch;
+  overflow-y: hidden !important;
+}
 .mobile-app {
   display: flex;
   flex-direction: column;

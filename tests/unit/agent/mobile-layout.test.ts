@@ -5,6 +5,9 @@
  *   - Terminal component receives fitRows (not fixed cols)
  *   - CSS does not block native touch scrolling
  *   - No touch-action: none or pan-x that would block vertical scroll
+ *   - Sticky bottom auto-scroll (scrollToBottom only when at bottom)
+ *   - Scroll panel controls (collapsible ↑/↓ buttons)
+ *   - localStorage persistence for workspace/surface
  *
  * Since these are browser components, we test the source code directly
  * rather than rendering in JSDOM (which lacks xterm.js support).
@@ -21,11 +24,11 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 describe('MobileLayout component', () => {
   const mobileSource = readFileSync(resolve(root, 'packages/web/src/components/MobileLayout.tsx'), 'utf-8');
   const terminalSource = readFileSync(resolve(root, 'packages/web/src/components/Terminal.tsx'), 'utf-8');
+  const layoutSource = readFileSync(resolve(root, 'packages/web/src/components/Layout.tsx'), 'utf-8');
+  const relaySource = readFileSync(resolve(root, 'packages/web/src/components/RelaySessionLayout.tsx'), 'utf-8');
   const cssSource = readFileSync(resolve(root, 'packages/web/src/index.css'), 'utf-8');
 
   it('does not pass cols prop to Terminal in mobile', () => {
-    // In MobileLayout, Terminal should NOT have a cols prop
-    // The only mention of cols should be in the onResize callback
     const terminalUsages = mobileSource.match(/<Terminal[\s\S]*?\/>/g) || [];
     for (const usage of terminalUsages) {
       assert.ok(!usage.includes('cols='), `MobileLayout Terminal should not have cols prop, found: ${usage.trim()}`);
@@ -54,7 +57,6 @@ describe('MobileLayout component', () => {
   });
 
   it('mobile-terminal-area CSS does not block vertical scrolling', () => {
-    // Find .mobile-terminal-area block
     const areaMatch = cssSource.match(/\.mobile-terminal-area\s*\{[^}]*\}/);
     assert.ok(areaMatch, 'Should find .mobile-terminal-area CSS');
     const areaCss = areaMatch[0];
@@ -72,19 +74,72 @@ describe('MobileLayout component', () => {
     assert.ok(areaCss.includes('overflow: hidden'), 'Should use overflow: hidden (xterm.js handles scrolling internally)');
   });
 
-  it('Terminal component does not set touch-action: none on container', () => {
-    assert.ok(!terminalSource.includes('touchAction') && !terminalSource.includes('touch-action'),
-      'Terminal component should not set touch-action CSS');
+  it('Terminal container uses touch-action: pan-y for vertical scrolling', () => {
+    assert.ok(terminalSource.includes("touchAction: 'pan-y'"),
+      'Terminal container should set touch-action: pan-y for mobile vertical scrolling');
+    assert.ok(!terminalSource.includes('touch-action: none') && !terminalSource.includes("touchAction: 'none'"),
+      'Terminal should NOT block touch with touch-action: none');
   });
 
   it('Terminal writeOutput uses scrollback-preserving ANSI sequences', () => {
     assert.ok(terminalSource.includes("write(`\\x1b[${t.rows};1H`)"),
       'Should move cursor to last row before pushing content into scrollback');
-    assert.ok(terminalSource.includes("'\\n'.repeat(t.rows)"),
-      'Should push rows into scrollback with newlines');
+    assert.ok(terminalSource.includes("previousText + '\\n'"),
+      'Should push previous screen content into scrollback (not blank lines)');
     assert.ok(terminalSource.includes("'\\x1b[H'"),
       'Should reset cursor to home position');
     assert.ok(terminalSource.includes("'\\x1b[J'"),
       'Should clear from cursor to end of screen');
+  });
+
+  it('Terminal uses sticky bottom pattern (isAtBottomRef)', () => {
+    assert.ok(terminalSource.includes('isAtBottomRef'), 'Should have isAtBottomRef for sticky bottom');
+    assert.ok(terminalSource.includes('isAtBottomRef.current'), 'Should check isAtBottomRef before scrollToBottom');
+    assert.ok(terminalSource.includes('buffer.viewportY'),
+      'Should use buffer.viewportY for atBottom detection');
+    assert.ok(terminalSource.includes('atBottom'),
+      'Should compute atBottom from buffer state');
+  });
+
+  it('Terminal has collapsible scroll panel with scroll buttons', () => {
+    assert.ok(terminalSource.includes('scrollPanelOpen'), 'Should have scrollPanelOpen state');
+    assert.ok(terminalSource.includes('scrollToTop'), 'Should have scrollToTop function');
+    assert.ok(terminalSource.includes('scrollToBottom'), 'Should have scrollToBottom function');
+    assert.ok(terminalSource.includes('scrollUp'), 'Should have scrollUp function');
+    assert.ok(terminalSource.includes('scrollDown'), 'Should have scrollDown function');
+    assert.ok(terminalSource.includes('setScrollPanelOpen(false)'), 'Should be able to close panel');
+    assert.ok(terminalSource.includes('setScrollPanelOpen(true)'), 'Should be able to open panel');
+  });
+
+  it('MobileLayout restores workspace and surface from localStorage', () => {
+    assert.ok(mobileSource.includes("localStorage.getItem('cmux-relay-last-workspace')"),
+      'Should initialize selectedWorkspaceId from localStorage');
+    assert.ok(mobileSource.includes("localStorage.getItem('cmux-relay-last-surface')"),
+      'Should initialize selectedSurfaceId from localStorage');
+    assert.ok(mobileSource.includes("localStorage.setItem('cmux-relay-last-workspace'"),
+      'Should persist workspace to localStorage');
+    assert.ok(mobileSource.includes("localStorage.setItem('cmux-relay-last-surface'"),
+      'Should persist surface to localStorage');
+  });
+
+  it('Layout (desktop local) restores workspace from localStorage', () => {
+    assert.ok(layoutSource.includes("localStorage.getItem('cmux-relay-last-workspace')"),
+      'Should initialize selectedWorkspaceId from localStorage');
+    assert.ok(layoutSource.includes("localStorage.setItem('cmux-relay-last-workspace'"),
+      'Should persist workspace to localStorage');
+  });
+
+  it('RelaySessionLayout (desktop cloud) restores workspace from localStorage', () => {
+    assert.ok(relaySource.includes("localStorage.getItem('cmux-relay-last-workspace')"),
+      'Should initialize selectedWorkspaceId from localStorage');
+    assert.ok(relaySource.includes("localStorage.setItem('cmux-relay-last-workspace'"),
+      'Should persist workspace to localStorage');
+  });
+
+  it('MobileLayout always calls selectSurface on data arrival', () => {
+    assert.ok(mobileSource.includes('Always call selectSurface to ensure server sends output'),
+      'Should always call selectSurface even when restoring from localStorage');
+    assert.ok(mobileSource.includes('!workspaces.some(w => w.id === selectedWorkspaceId)'),
+      'Should validate saved workspace still exists');
   });
 });

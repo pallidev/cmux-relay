@@ -285,7 +285,6 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
           {activeSurface ? (
             <Terminal
               surfaceId={activeSurface.id}
-              cols={wsPanes.find(p => p.selectedSurfaceId === activeSurface.id)?.columns}
               fitRows
               onInput={(data) => sendInput(activeSurface.id, data)}
               onResize={(cols, rows) => sendResize(activeSurface.id, cols, rows)}

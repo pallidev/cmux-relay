@@ -36,6 +36,7 @@ export function useRelay({ url, token, sessionId }: UseRelayOptions) {
     let disposed = false;
     let reconnectTimer: ReturnType<typeof setTimeout>;
     let reconnectDelay = 1000;
+    let hiddenAt = 0;
 
     const connect = () => {
       if (disposed) return;
@@ -118,13 +119,19 @@ export function useRelay({ url, token, sessionId }: UseRelayOptions) {
 
     connect();
 
-    // Reconnect immediately when page becomes visible (mobile returning from background)
+    // Reconnect when page becomes visible after being hidden
+    // Browsers/proxies may silently kill idle WebSocket connections while
+    // readyState still reports OPEN. Force reconnect after 30s hidden.
     const onVisible = () => {
       if (document.visibilityState === 'visible' && !disposed) {
-        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        const wasHiddenLong = hiddenAt > 0 && (Date.now() - hiddenAt) > 30_000;
+        if (wasHiddenLong || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+          if (wsRef.current) wsRef.current.close();
           clearTimeout(reconnectTimer);
           connect();
         }
+      } else if (document.visibilityState === 'hidden') {
+        hiddenAt = Date.now();
       }
     };
     document.addEventListener('visibilitychange', onVisible);

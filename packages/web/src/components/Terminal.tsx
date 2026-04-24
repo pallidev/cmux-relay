@@ -128,6 +128,9 @@ export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: 
       }
       t.write(text);
       t.write('\x1b[J');
+      // Position cursor at last row (where prompt typically is)
+      // read_text doesn't provide cursor position, so we default to bottom
+      t.write(`\x1b[${t.rows};1H`);
       previousText = text;
 
       if (isAtBottomRef.current) {
@@ -170,6 +173,9 @@ export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: 
   const [scrolledUp, setScrolledUp] = useState(false);
   const [scrollPercent, setScrollPercent] = useState(100);
   const [scrollPanelOpen, setScrollPanelOpen] = useState(false);
+  const [mobileInput, setMobileInput] = useState('');
+  const [ctrlActive, setCtrlActive] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Custom touch scroll handler for reliable mobile scrolling
   useEffect(() => {
@@ -258,6 +264,38 @@ export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: 
     padding: 0,
   });
 
+  const sendMobileInput = () => {
+    if (!mobileInput.trim()) return;
+    onInputRef.current(mobileInput);
+    setMobileInput('');
+  };
+
+  const sendKey = (data: string) => {
+    onInputRef.current(data);
+  };
+
+  const ctrlKey = (ch: string) => {
+    // Ctrl+A=0x01 ... Ctrl+Z=0x1a
+    const code = ch.toUpperCase().charCodeAt(0) - 64;
+    if (code >= 1 && code <= 26) sendKey(String.fromCharCode(code));
+    setCtrlActive(false);
+  };
+
+  const ctrlBtnStyle: React.CSSProperties = {
+    height: 30,
+    minWidth: 36,
+    border: 'none',
+    borderRadius: 5,
+    background: '#313244',
+    color: '#cdd6f4',
+    fontSize: 12,
+    fontWeight: 500,
+    cursor: 'pointer',
+    padding: '0 4px',
+    fontFamily: 'inherit',
+    flexShrink: 0,
+  };
+
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <div
@@ -265,14 +303,119 @@ export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: 
         style={{
           width: cols ? `${cols * 7.8}px` : '100%',
           minWidth: '100%',
-          height: '100%',
+          height: fitRows ? 'calc(100% - 78px)' : '100%',
           backgroundColor: '#1e1e2e',
           overflow: 'hidden',
           touchAction: 'pan-y',
         }}
       />
-      {/* Scroll controls - collapsible */}
-      <div style={{
+      {/* Mobile input bar for IME support + control keys */}
+      {fitRows && (
+        <div style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          background: '#181825',
+          borderTop: '1px solid #313244',
+          zIndex: 10,
+          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+        }}>
+          {/* Control keys row */}
+          {ctrlActive ? (
+            <div style={{
+              display: 'flex',
+              gap: 3,
+              padding: '4px 6px',
+              justifyContent: 'center',
+            }}>
+              {['c', 'd', 'z', 'l', 'a'].map(ch => (
+                <button key={ch} onClick={() => ctrlKey(ch)} style={ctrlBtnStyle}>
+                  C-{ch.toUpperCase()}
+                </button>
+              ))}
+              <button onClick={() => setCtrlActive(false)} style={{ ...ctrlBtnStyle, background: '#f38ba8', color: '#1e1e2e' }}>
+                ✕
+              </button>
+            </div>
+          ) : (
+            <div style={{
+              display: 'flex',
+              gap: 3,
+              padding: '4px 6px',
+              justifyContent: 'center',
+            }}>
+              <button onClick={() => sendKey('\r')} style={ctrlBtnStyle}>↵</button>
+              <button onClick={() => sendKey('\x7f')} style={ctrlBtnStyle}>⌫</button>
+              <button onClick={() => sendKey('\t')} style={ctrlBtnStyle}>Tab</button>
+              <button onClick={() => sendKey('\x1b')} style={ctrlBtnStyle}>Esc</button>
+              <button onClick={() => sendKey('\x1b[D')} style={ctrlBtnStyle}>←</button>
+              <button onClick={() => sendKey('\x1b[C')} style={ctrlBtnStyle}>→</button>
+              <button onClick={() => sendKey('\x1b[A')} style={ctrlBtnStyle}>↑</button>
+              <button onClick={() => sendKey('\x1b[B')} style={ctrlBtnStyle}>↓</button>
+              <button onClick={() => setCtrlActive(true)} style={ctrlBtnStyle}>Ctrl</button>
+            </div>
+          )}
+          {/* Text input + send */}
+          <div style={{
+            display: 'flex',
+            gap: 0,
+            padding: '0 6px 4px',
+            alignItems: 'center',
+          }}>
+            <input
+              ref={inputRef}
+              type="text"
+              value={mobileInput}
+              onChange={(e) => setMobileInput(e.target.value)}
+              onFocus={(e) => {
+                // Prevent browser scroll-into-view on mobile
+                requestAnimationFrame(() => window.scrollTo(0, 0));
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  sendMobileInput();
+                }
+              }}
+              placeholder="입력..."
+              enterKeyHint="send"
+              style={{
+                flex: 1,
+                height: 32,
+                border: '1px solid #313244',
+                borderRadius: 6,
+                background: '#1e1e2e',
+                color: '#cdd6f4',
+                fontSize: 14,
+                padding: '0 10px',
+                outline: 'none',
+                fontFamily: 'inherit',
+              }}
+            />
+            <button
+              onClick={sendMobileInput}
+              style={{
+                height: 32,
+                minWidth: 44,
+                marginLeft: 6,
+                border: 'none',
+                borderRadius: 6,
+                background: 'rgba(137, 180, 250, 0.8)',
+                color: '#1e1e2e',
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+                padding: '0 10px',
+              }}
+            >
+              전송
+            </button>
+          </div>
+        </div>
+      )}
+      {/* Scroll controls - collapsible, mobile only */}
+      {fitRows && <div style={{
         position: 'absolute',
         right: 6,
         top: '50%',
@@ -315,7 +458,7 @@ export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: 
             ⇅
           </button>
         )}
-      </div>
+      </div>}
     </div>
   );
 }

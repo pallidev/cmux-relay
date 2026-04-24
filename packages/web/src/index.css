@@ -677,7 +677,13 @@ html, body, #root {
 /* ── Mobile Layout ──────────────────────────────────────────── */
 .xterm-viewport {
   -webkit-overflow-scrolling: touch;
-  overflow-y: hidden !important;
+}
+
+/* Hide xterm native scrollbar on mobile (custom touch handler used instead) */
+@media (hover: none) and (pointer: coarse) {
+  .xterm-viewport {
+    overflow-y: hidden !important;
+  }
 }
 .mobile-app {
   display: flex;

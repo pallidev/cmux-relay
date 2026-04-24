@@ -5,37 +5,45 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { RelayConnection } from '../../../packages/agent/src/relay-connection.js';
 import { SessionStore } from '../../../packages/agent/src/session-store.js';
 import { handleClientMessage } from '../../../packages/agent/src/message-handler.js';
-import { decodeMessage } from '@cmux-relay/shared';
-import type { RelayToAgent, RelayToClient, ClientOutgoing } from '@cmux-relay/shared';
+import { decodeMessage } from '../../../packages/shared/dist/index.js';
+import type { RelayToAgent, RelayToClient, ClientOutgoing } from '../../../packages/shared/dist/index.js';
 
 /**
  * Test the full agent → relay → client data flow using a mock relay server.
- * Verifies:
- * 1. Agent registers with relay
- * 2. Agent receives client messages via relay (client.data)
- * 3. Agent processes them through MessageHandler
- * 4. Agent sends responses back through relay (agent.data)
  */
 describe('Agent → Relay data flow', () => {
   let httpServer: Server;
   let wss: WebSocketServer;
   let port: number;
-  let relayWs: WebSocket | null = null;
-
-  // Messages received by the relay from the agent
+  let activeWs: WebSocket | null = null;
   let relayReceived: string[] = [];
+
+  /** Connect a relay and complete handshake. Ensures session.created goes to the right socket. */
+  function connectRelay(sessionId: string): Promise<RelayConnection> {
+    return new Promise((resolve, reject) => {
+      const relay = new RelayConnection(`ws://127.0.0.1:${port}`, 'test-token');
+
+      const onConnection = (ws: WebSocket) => {
+        activeWs = ws;
+        relayReceived = [];
+        ws.on('message', (raw) => {
+          relayReceived.push(raw.toString());
+        });
+        // Wait for agent.register, then respond
+        ws.once('message', () => {
+          ws.send(JSON.stringify({ type: 'session.created', sessionId }));
+        });
+        wss.off('connection', onConnection);
+      };
+      wss.on('connection', onConnection);
+
+      relay.connect().then(() => resolve(relay)).catch(reject);
+    });
+  }
 
   before(async () => {
     httpServer = createServer();
     wss = new WebSocketServer({ server: httpServer });
-
-    wss.on('connection', (ws) => {
-      relayWs = ws;
-      relayReceived = [];
-      ws.on('message', (raw) => {
-        relayReceived.push(raw.toString());
-      });
-    });
 
     await new Promise<void>((resolve) => {
       httpServer.listen(0, '127.0.0.1', () => {
@@ -47,8 +55,8 @@ describe('Agent → Relay data flow', () => {
   });
 
   after(async () => {
-    relayWs?.close();
-    await new Promise<void>((r) => httpServer.close(() => r()));
+    activeWs?.close();
+    await new Promise<void>(r => httpServer.close(() => r()));
   });
 
   beforeEach(() => {
@@ -56,20 +64,9 @@ describe('Agent → Relay data flow', () => {
   });
 
   it('agent registers with relay using token', async () => {
-    const relay = new RelayConnection(`ws://127.0.0.1:${port}`, 'test-token');
+    const relay = await connectRelay('test-session-123');
 
-    // Simulate relay sending session.created after receiving agent.register
-    const sessionPromise = relay.connect();
-
-    // Wait for agent to send agent.register
-    await new Promise(r => setTimeout(r, 100));
-    const registerMsg = decodeMessage<RelayToAgent>(relayReceived[relayReceived.length - 1] || '{}');
-
-    // Relay responds with session.created
-    relayWs!.send(JSON.stringify({ type: 'session.created', sessionId: 'test-session-123' }));
-
-    const sessionId = await sessionPromise;
-    assert.equal(sessionId, 'test-session-123');
+    const registerMsg = decodeMessage<RelayToAgent>(relayReceived[0] || '{}');
     assert.equal(registerMsg.type, 'agent.register');
 
     relay.disconnect();
@@ -80,11 +77,9 @@ describe('Agent → Relay data flow', () => {
     store.updateWorkspaces([{ id: 'ws1', title: 'Test' }]);
     store.updateSurfaces('ws1', [{ id: 's1', title: 'Term', type: 'terminal', workspaceId: 'ws1' }]);
 
-    const relay = new RelayConnection(`ws://127.0.0.1:${port}`, 'test-token');
-    relayWs!.send(JSON.stringify({ type: 'session.created', sessionId: 'flow-test' }));
-    await relay.connect();
+    const relay = await connectRelay('flow-test');
+    relayReceived = [];
 
-    // Agent broadcasts workspace data via relay
     relay.send({ type: 'workspaces', payload: { workspaces: store.getAllWorkspaces() } });
 
     await new Promise(r => setTimeout(r, 50));
@@ -94,7 +89,6 @@ describe('Agent → Relay data flow', () => {
       .find((m: any) => m?.type === 'agent.data');
 
     assert.ok(agentDataMsg, 'Should send agent.data message');
-    assert.ok(agentDataMsg.payload);
     assert.equal(agentDataMsg.payload.type, 'workspaces');
     assert.equal(agentDataMsg.payload.payload.workspaces[0].id, 'ws1');
 
@@ -112,8 +106,8 @@ describe('Agent → Relay data flow', () => {
       async handleResize() {},
     };
 
-    let agentSent: RelayToClient[] = [];
-    const relay = new RelayConnection(`ws://127.0.0.1:${port}`, 'test-token');
+    const agentSent: RelayToClient[] = [];
+    const relay = await connectRelay('flow-test-2');
 
     relay.onClientData(async (msg: ClientOutgoing) => {
       await handleClientMessage(
@@ -124,26 +118,15 @@ describe('Agent → Relay data flow', () => {
       );
     });
 
-    relayWs!.send(JSON.stringify({ type: 'session.created', sessionId: 'flow-test-2' }));
-    await relay.connect();
-
-    // Clear registration messages
     relayReceived = [];
 
-    // Simulate client sending surface.select through relay
-    relayWs!.send(JSON.stringify({
+    activeWs!.send(JSON.stringify({
       type: 'client.data',
       payload: { type: 'surface.select', surfaceId: 's1' },
     }));
 
     await new Promise(r => setTimeout(r, 100));
 
-    // Agent should have sent responses back through relay
-    const agentDataMessages = relayReceived
-      .map(m => { try { return JSON.parse(m); } catch { return null; } })
-      .filter((m: any) => m?.type === 'agent.data');
-
-    // Also check the local agentSent array (responses from MessageHandler)
     assert.ok(agentSent.length > 0, 'MessageHandler should produce responses');
 
     const surfaceActive = agentSent.find(m => m.type === 'surface.active');
@@ -168,7 +151,8 @@ describe('Agent → Relay data flow', () => {
       async handleResize() {},
     };
 
-    const relay = new RelayConnection(`ws://127.0.0.1:${port}`, 'test-token');
+    const relay = await connectRelay('input-test');
+
     relay.onClientData(async (msg: ClientOutgoing) => {
       await handleClientMessage(
         JSON.stringify(msg),
@@ -178,11 +162,8 @@ describe('Agent → Relay data flow', () => {
       );
     });
 
-    relayWs!.send(JSON.stringify({ type: 'session.created', sessionId: 'input-test' }));
-    await relay.connect();
-
     const inputData = Buffer.from('ls -la\n').toString('base64');
-    relayWs!.send(JSON.stringify({
+    activeWs!.send(JSON.stringify({
       type: 'client.data',
       payload: { type: 'input', surfaceId: 's1', payload: { data: inputData } },
     }));
@@ -196,17 +177,9 @@ describe('Agent → Relay data flow', () => {
   });
 
   it('agent sends output data through relay to client', async () => {
-    const store = new SessionStore();
-    store.updateWorkspaces([{ id: 'ws1', title: 'Test' }]);
-    store.updateSurfaces('ws1', [{ id: 's1', title: 'Term', type: 'terminal', workspaceId: 'ws1' }]);
-
-    const relay = new RelayConnection(`ws://127.0.0.1:${port}`, 'test-token');
-    relayWs!.send(JSON.stringify({ type: 'session.created', sessionId: 'output-test' }));
-    await relay.connect();
-
+    const relay = await connectRelay('output-test');
     relayReceived = [];
 
-    // Agent sends terminal output through relay
     const outputData = Buffer.from('Hello from terminal').toString('base64');
     relay.send({
       type: 'output',

@@ -19,6 +19,7 @@ describe('PairingRegistry', () => {
   });
 
   afterEach(() => {
+    registry.close();
     db.close();
   });
 

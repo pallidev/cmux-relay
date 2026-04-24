@@ -34,8 +34,12 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
     return localStorage.getItem('cmux-relay-token') || '';
   });
   const [submitted, setSubmitted] = useState(() => !!localStorage.getItem('cmux-relay-token') || !!relayWsUrl);
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
-  const [selectedSurfaceId, setSelectedSurfaceId] = useState<string | null>(null);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
+    () => localStorage.getItem('cmux-relay-last-workspace')
+  );
+  const [selectedSurfaceId, setSelectedSurfaceId] = useState<string | null>(
+    () => localStorage.getItem('cmux-relay-last-surface')
+  );
 
   const relayUrl = relayWsUrl || (submitted ? RELAY_URL : '');
 
@@ -118,12 +122,25 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
     }, 5000);
   }, [notifications]);
 
-  // Auto-select first workspace when data arrives
+  // Auto-select first workspace when data arrives (only if no saved state)
   useEffect(() => {
-    if (selectedWorkspaceId) return;
+    if (selectedWorkspaceId) {
+      // Verify saved workspace still exists
+      if (workspaces.length > 0 && !workspaces.some(w => w.id === selectedWorkspaceId)) {
+        setSelectedWorkspaceId(workspaces[0].id);
+      }
+      return;
+    }
     if (workspaces.length === 0) return;
     setSelectedWorkspaceId(workspaces[0].id);
   }, [workspaces, selectedWorkspaceId]);
+
+  // Persist workspace selection
+  useEffect(() => {
+    if (selectedWorkspaceId) {
+      localStorage.setItem('cmux-relay-last-workspace', selectedWorkspaceId);
+    }
+  }, [selectedWorkspaceId]);
 
   // Reset manual selection flag on workspace change
   useEffect(() => {
@@ -133,27 +150,44 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
   // Select surfaces for current workspace (mirrors desktop Layout logic)
   useEffect(() => {
     if (!selectedWorkspaceId) return;
+    if (surfaces.length === 0 && panes.length === 0) return;
 
     const wsPanes = panes.filter(p => p.workspaceId === selectedWorkspaceId);
     const wsSurfaces = surfaces.filter(
       s => s.workspaceId === selectedWorkspaceId && s.type === 'terminal'
     );
 
-    // Pick best surface: focused pane → first pane → first surface
+    if (wsSurfaces.length === 0) return;
+
+    // Pick best surface: saved → focused pane → first pane → first surface
     const focusedPane = wsPanes.find(p => p.focused);
     let targetId: string | null = null;
 
-    if (wsPanes.length > 0) {
+    // Prefer saved surface if it exists in this workspace
+    const savedSurfaceId = selectedSurfaceId;
+    if (savedSurfaceId && wsSurfaces.some(s => s.id === savedSurfaceId)) {
+      targetId = savedSurfaceId;
+    } else if (wsPanes.length > 0) {
       targetId = focusedPane?.selectedSurfaceId || wsPanes[0].selectedSurfaceId;
-    } else if (wsSurfaces.length > 0) {
+    } else {
       targetId = wsSurfaces[0].id;
     }
 
-    if (targetId && targetId !== selectedSurfaceId && !userSelectedRef.current) {
-      selectSurface(targetId);
+    if (!targetId) return;
+
+    // Always call selectSurface to ensure server sends output
+    selectSurface(targetId);
+    if (targetId !== selectedSurfaceId) {
       setSelectedSurfaceId(targetId);
     }
   }, [selectedWorkspaceId, panes, surfaces]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Persist surface selection
+  useEffect(() => {
+    if (selectedSurfaceId) {
+      localStorage.setItem('cmux-relay-last-surface', selectedSurfaceId);
+    }
+  }, [selectedSurfaceId]);
 
   const handleConnect = (e: React.FormEvent) => {
     e.preventDefault();

@@ -3,11 +3,10 @@
  *
  * The writeOutput function must:
  *   - Use base64 dedup to skip unchanged content
- *   - On first write, just write text and scrollToBottom
- *   - On subsequent writes, push current screen into scrollback via
- *     ANSI escapes instead of clearing it (which would destroy scrollback)
- *
- * This tests the logic in isolation without xterm.js (browser-only).
+ *   - On first write, just write text and scrollToBottom (always)
+ *   - On subsequent writes, push previous screen content into scrollback
+ *     (not blank lines) via ANSI escapes
+ *   - Only call scrollToBottom when isAtBottom is true (sticky bottom)
  */
 
 import { describe, it } from 'node:test';
@@ -22,7 +21,9 @@ function createWriteOutputCapture() {
   const state = {
     lastB64: '',
     hasWritten: false,
+    previousText: '',
     rows: 24,
+    isAtBottom: true,
   };
 
   // Mirrors production writeOutput from Terminal.tsx
@@ -30,22 +31,29 @@ function createWriteOutputCapture() {
     if (base64Data === state.lastB64) return;
     state.lastB64 = base64Data;
 
+    const bytes = Buffer.from(base64Data, 'base64').toString();
+
     if (!state.hasWritten) {
       state.hasWritten = true;
-      const bytes = Buffer.from(base64Data, 'base64').toString();
+      state.previousText = bytes;
       written.push(bytes);
       calls.scrollToBottom++;
       return;
     }
 
-    // Push current screen into scrollback, then write new content
-    written.push(`\x1b[${state.rows};1H`);
-    written.push('\n'.repeat(state.rows));
-    written.push('\x1b[H');
-    const bytes = Buffer.from(base64Data, 'base64').toString();
+    // Push previous screen content into scrollback, then write new content
+    if (state.previousText) {
+      written.push(`\x1b[${state.rows};1H`);
+      written.push(state.previousText + '\n');
+      written.push('\x1b[H');
+    }
     written.push(bytes);
     written.push('\x1b[J');
-    calls.scrollToBottom++;
+    state.previousText = bytes;
+
+    if (state.isAtBottom) {
+      calls.scrollToBottom++;
+    }
   }
 
   return { written, calls, state, writeOutput };
@@ -64,16 +72,15 @@ describe('writeOutput scrollback logic', () => {
     assert.ok(!written[0].includes('\x1b['), 'First write should not contain ANSI escapes');
   });
 
-  it('second write uses scrollback-preserving ANSI sequences', () => {
+  it('second write uses scrollback-preserving ANSI sequences with previous content', () => {
     const { written, writeOutput } = createWriteOutputCapture();
 
     writeOutput(Buffer.from('content v1').toString('base64'));
     writeOutput(Buffer.from('content v2').toString('base64'));
 
-    // 1st write: 1 entry, 2nd write: 5 entries = 6 total
     assert.equal(written.length, 6, 'Two writes should produce 1 + 5 = 6 entries');
     assert.equal(written[1], '\x1b[24;1H', 'Move cursor to last row');
-    assert.equal(written[2], '\n'.repeat(24), 'Push rows into scrollback');
+    assert.equal(written[2], 'content v1\n', 'Push previous content + separator into scrollback');
     assert.equal(written[4], 'content v2', 'New content');
     assert.equal(written[5], '\x1b[J', 'Clear from cursor to end');
   });
@@ -102,7 +109,7 @@ describe('writeOutput scrollback logic', () => {
     assert.equal(written.length, 11, 'Total: 1 + 5 + 5 = 11 write entries');
   });
 
-  it('scrollToBottom is called on every non-deduped write', () => {
+  it('scrollToBottom is called when isAtBottom is true', () => {
     const { calls, writeOutput } = createWriteOutputCapture();
 
     writeOutput(Buffer.from('v1').toString('base64'));
@@ -111,6 +118,35 @@ describe('writeOutput scrollback logic', () => {
     writeOutput(Buffer.from('v3').toString('base64'));
 
     assert.equal(calls.scrollToBottom, 3, 'scrollToBottom called 3 times (not for dedup\'d write)');
+  });
+
+  it('scrollToBottom is NOT called when user is scrolled up (isAtBottom=false)', () => {
+    const { calls, state, writeOutput } = createWriteOutputCapture();
+
+    writeOutput(Buffer.from('v1').toString('base64'));
+    assert.equal(calls.scrollToBottom, 1, 'First write always scrolls to bottom');
+
+    state.isAtBottom = false; // User scrolled up
+
+    writeOutput(Buffer.from('v2').toString('base64'));
+    writeOutput(Buffer.from('v3').toString('base64'));
+
+    assert.equal(calls.scrollToBottom, 1, 'scrollToBottom NOT called when user is scrolled up');
+  });
+
+  it('scrollToBottom resumes when user scrolls back to bottom', () => {
+    const { calls, state, writeOutput } = createWriteOutputCapture();
+
+    writeOutput(Buffer.from('v1').toString('base64'));
+    assert.equal(calls.scrollToBottom, 1);
+
+    state.isAtBottom = false;
+    writeOutput(Buffer.from('v2').toString('base64'));
+    assert.equal(calls.scrollToBottom, 1, 'No scrollToBottom while scrolled up');
+
+    state.isAtBottom = true;
+    writeOutput(Buffer.from('v3').toString('base64'));
+    assert.equal(calls.scrollToBottom, 2, 'scrollToBottom resumes when back at bottom');
   });
 
   it('never uses \\x1b[2J which destroys scrollback', () => {
@@ -133,6 +169,6 @@ describe('writeOutput scrollback logic', () => {
     capture.writeOutput(Buffer.from('v2').toString('base64'));
 
     assert.equal(capture.written[1], '\x1b[40;1H', 'Move to row 40');
-    assert.equal(capture.written[2], '\n'.repeat(40), 'Push 40 rows into scrollback');
+    assert.equal(capture.written[2], 'v1\n', 'Push previous content with separator');
   });
 });

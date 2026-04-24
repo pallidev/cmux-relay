@@ -14,7 +14,12 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
-    const update = () => setAppHeight(vv.height);
+    const update = () => {
+      setAppHeight(vv.height);
+      // Prevent browser from scrolling page when keyboard appears
+      window.scrollTo(0, 0);
+      document.documentElement.scrollTop = 0;
+    };
     vv.addEventListener('resize', update);
     vv.addEventListener('scroll', update);
     return () => {

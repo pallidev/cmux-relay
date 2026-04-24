@@ -52,6 +52,15 @@ describe('http-handler', () => {
   let db: Database.Database;
   let registry: SessionRegistry;
   let pairing: PairingRegistry;
+  const pendingTimers: ReturnType<typeof setTimeout>[] = [];
+  const originalSetTimeout = globalThis.setTimeout;
+
+  // Wrap setTimeout to track timers so we can clean them up
+  globalThis.setTimeout = ((fn: any, ms?: number, ...args: any[]) => {
+    const id = originalSetTimeout(fn, ms, ...args);
+    pendingTimers.push(id);
+    return id;
+  }) as typeof setTimeout;
 
   before(() => {
     process.env.RELAY_JWT_SECRET = JWT_SECRET;
@@ -64,6 +73,9 @@ describe('http-handler', () => {
     delete process.env.RELAY_JWT_SECRET;
     delete process.env.GITHUB_CLIENT_ID;
     delete process.env.GITHUB_CLIENT_SECRET;
+    for (const id of pendingTimers) clearTimeout(id);
+    pendingTimers.length = 0;
+    globalThis.setTimeout = originalSetTimeout;
     db.close();
   });
 
@@ -73,6 +85,8 @@ describe('http-handler', () => {
   });
 
   afterEach(() => {
+    for (const id of pendingTimers) clearTimeout(id);
+    pendingTimers.length = 0;
     pairing.close();
   });
 

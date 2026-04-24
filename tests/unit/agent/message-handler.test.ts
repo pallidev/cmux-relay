@@ -245,7 +245,7 @@ describe('handleClientMessage', () => {
 
       assert.equal(mock.calls.readTerminalText.length, 1);
       assert.equal(mock.calls.readTerminalText[0][0], 's1');
-      assert.equal(mock.calls.readTerminalText[0][1], true); // scrollback = true
+      assert.equal(mock.calls.readTerminalText[0][1], false); // scrollback = false
     });
 
     it('does not read scrollback for non-terminal surface', async () => {

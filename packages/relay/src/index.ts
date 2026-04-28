@@ -7,6 +7,7 @@ import { SessionRegistry } from './session-registry.js';
 import { PairingRegistry } from './pairing-registry.js';
 import { handleHttpRequest } from './http-handler.js';
 import { createWsHandler, handleUpgrade } from './ws-handler.js';
+import { initVapidKeys } from './push-sender.js';
 
 // Load .env file
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -37,6 +38,12 @@ const WEB_URL = process.env.WEB_URL || 'https://cmux.gateway.myaddr.io';
 const db = initDatabase(DB_PATH);
 const registry = new SessionRegistry();
 const pairing = new PairingRegistry(WEB_URL);
+
+// Initialize VAPID keys for push notifications
+const vapidKeys = initVapidKeys();
+process.env.VAPID_PUBLIC_KEY_CACHE = vapidKeys.publicKey;
+registry.setDatabase(db);
+
 const wss = createWsHandler(db, registry, pairing);
 
 const server = createServer((req, res) => {

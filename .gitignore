@@ -6,6 +6,7 @@ dist/
 # Environment / secrets
 .env
 .env.*
+.vapid-keys.json
 package-lock.json
 
 # Database

@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type Database from 'better-sqlite3';
 import { createSessionJwt, verifySessionJwt } from './auth.js';
-import { createApiToken, deleteApiToken, listApiTokens } from './db.js';
+import { createApiToken, deleteApiToken, listApiTokens, upsertPushSubscription, deletePushSubscription } from './db.js';
 import { getAuthorizationUrl, handleCallback } from './github-oauth.js';
 import type { SessionRegistry } from './session-registry.js';
 import type { PairingRegistry } from './pairing-registry.js';
@@ -59,6 +59,19 @@ export async function handleHttpRequest(
       'Set-Cookie': `relay_jwt=${jwt}; Path=/; SameSite=Lax; Max-Age=${30 * 24 * 60 * 60}`,
     });
     res.end();
+    return;
+  }
+
+  // Push VAPID public key (public, no auth required)
+  if (path === '/api/push/vapid-key' && req.method === 'GET') {
+    const vapidPublicKey = process.env.VAPID_PUBLIC_KEY_CACHE;
+    if (!vapidPublicKey) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Push not configured' }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ publicKey: vapidPublicKey }));
     return;
   }
 
@@ -142,6 +155,30 @@ export async function handleHttpRequest(
     const sessions = registry.getSessionsForUser(user.sub);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(sessions));
+    return;
+  }
+
+  if (path === '/api/push/subscribe' && req.method === 'POST') {
+    const body = await readBody(req);
+    const parsed = JSON.parse(body) as { endpoint: string; keys: { p256dh: string; auth: string } };
+    if (!parsed.endpoint || !parsed.keys?.p256dh || !parsed.keys?.auth) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid subscription' }));
+      return;
+    }
+    const userAgent = req.headers['user-agent'] || undefined;
+    upsertPushSubscription(db, user.sub, parsed.endpoint, parsed.keys.p256dh, parsed.keys.auth, userAgent);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  if (path === '/api/push/subscribe' && req.method === 'DELETE') {
+    const body = await readBody(req);
+    const parsed = JSON.parse(body) as { endpoint: string };
+    const deleted = deletePushSubscription(db, user.sub, parsed.endpoint);
+    res.writeHead(deleted ? 200 : 404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(deleted ? { ok: true } : { error: 'Not found' }));
     return;
   }
 

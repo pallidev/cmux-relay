@@ -4,6 +4,7 @@ import { useMobile } from '../hooks/useMobile';
 import { MobileLayout } from './MobileLayout';
 import { Terminal, writeToTerminal } from './Terminal';
 import { getRelayWsUrl, getToastType } from '../lib/helpers';
+import { registerServiceWorker, subscribePush, getPendingNavigation } from '../lib/push';
 import type { PaneInfo, CmuxNotification } from '@cmux-relay/shared';
 
 const RELAY_URL = getRelayWsUrl();
@@ -70,21 +71,43 @@ export function Layout() {
     }, 5000);
   }, [notifications]);
 
-  // Browser notification support
+  // Browser notification + push subscription
   const pendingBrowserNotifs = useRef<CmuxNotification[]>([]);
+  const pushInitialized = useRef(false);
 
   useEffect(() => {
-    if (status === 'connected' && 'Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().then((p) => {
-        if (p === 'granted' && pendingBrowserNotifs.current.length > 0) {
-          for (const n of pendingBrowserNotifs.current) {
-            new Notification(n.title, { body: n.subtitle ? `${n.subtitle}: ${n.body}` : n.body, tag: n.id });
+    if (status !== 'connected' || pushInitialized.current) return;
+    pushInitialized.current = true;
+
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().then(async (p) => {
+        if (p === 'granted') {
+          const reg = await registerServiceWorker();
+          if (reg) await subscribePush(reg);
+          if (pendingBrowserNotifs.current.length > 0) {
+            for (const n of pendingBrowserNotifs.current) {
+              new Notification(n.title, { body: n.subtitle ? `${n.subtitle}: ${n.body}` : n.body, tag: n.id });
+            }
+            pendingBrowserNotifs.current = [];
           }
-          pendingBrowserNotifs.current = [];
         }
+      });
+    } else if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      registerServiceWorker().then((reg) => {
+        if (reg) subscribePush(reg);
       });
     }
   }, [status]);
+
+  // Handle pending navigation from push notification click
+  useEffect(() => {
+    getPendingNavigation().then((nav) => {
+      if (nav) {
+        if (nav.workspaceId) setSelectedWorkspaceId(nav.workspaceId);
+        if (nav.surfaceId) selectSurface(nav.surfaceId);
+      }
+    });
+  }, []);
 
   // Keep onNotifications wired for browser notifications
   onNotifications(useCallback((newNotifs: CmuxNotification[]) => {

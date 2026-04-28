@@ -39,6 +39,18 @@ export function initDatabase(dbPath: string): Database.Database {
       last_used_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id),
+      endpoint TEXT NOT NULL,
+      p256dh TEXT NOT NULL,
+      auth_key TEXT NOT NULL,
+      user_agent TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_id ON push_subscriptions(user_id);
   `);
 
   return db;
@@ -98,4 +110,43 @@ export function deleteApiToken(db: Database.Database, userId: string, tokenId: s
 
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
+}
+
+export interface PushSubscriptionRecord {
+  id: string;
+  user_id: string;
+  endpoint: string;
+  p256dh: string;
+  auth_key: string;
+  user_agent: string | null;
+  created_at: string;
+}
+
+export function upsertPushSubscription(
+  db: Database.Database,
+  userId: string,
+  endpoint: string,
+  p256dh: string,
+  authKey: string,
+  userAgent?: string,
+): string {
+  const existing = db.prepare('SELECT id FROM push_subscriptions WHERE endpoint = ?').get(endpoint) as { id: string } | undefined;
+  if (existing) {
+    db.prepare('UPDATE push_subscriptions SET p256dh = ?, auth_key = ?, user_agent = ? WHERE id = ?')
+      .run(p256dh, authKey, userAgent ?? null, existing.id);
+    return existing.id;
+  }
+  const id = randomBytes(16).toString('hex');
+  db.prepare('INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth_key, user_agent) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(id, userId, endpoint, p256dh, authKey, userAgent ?? null);
+  return id;
+}
+
+export function getPushSubscriptionsForUser(db: Database.Database, userId: string): PushSubscriptionRecord[] {
+  return db.prepare('SELECT * FROM push_subscriptions WHERE user_id = ?').all(userId) as PushSubscriptionRecord[];
+}
+
+export function deletePushSubscription(db: Database.Database, userId: string, endpoint: string): boolean {
+  const result = db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ? AND user_id = ?').run(endpoint, userId);
+  return result.changes > 0;
 }

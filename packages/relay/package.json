@@ -15,10 +15,12 @@
     "arctic": "^3.0.0",
     "better-sqlite3": "^11.0.0",
     "jose": "^6.0.0",
+    "web-push": "^3.6.7",
     "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",
+    "@types/web-push": "^3.6.4",
     "@types/ws": "^8.5.13",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"

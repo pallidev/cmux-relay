@@ -1,8 +1,10 @@
-import type { WebSocket } from 'ws';
+import { WebSocket } from 'ws';
 import type { IncomingMessage } from 'node:http';
+import type Database from 'better-sqlite3';
 import type { AgentOutgoing, RelayToAgent, ClientOutgoing, RelayToClient } from '@cmux-relay/shared';
 import { encodeMessage, decodeMessage } from '@cmux-relay/shared';
 import { randomBytes } from 'node:crypto';
+import { sendPushToUser } from './push-sender.js';
 
 interface ClientInfo {
   ws: WebSocket;
@@ -22,6 +24,11 @@ export class SessionRegistry {
   private sessions = new Map<string, ActiveSession>();
   private agentMap = new Map<WebSocket, string>();
   private clientMap = new Map<WebSocket, string>();
+  private db: Database.Database | null = null;
+
+  setDatabase(db: Database.Database): void {
+    this.db = db;
+  }
 
   registerAgent(userId: string, ws: WebSocket): string {
     const sessionId = randomBytes(8).toString('hex');
@@ -104,6 +111,21 @@ export class SessionRegistry {
       for (const client of session.clients) {
         if (client.ws.readyState === WebSocket.OPEN) {
           client.ws.send(payload);
+        }
+      }
+
+      // Send push notifications when no clients are connected
+      if (clientCount === 0 && this.db && (msg.payload as any).type === 'notifications') {
+        const notifs = (msg.payload as any).payload?.notifications as Array<{ title: string; subtitle: string; body: string; workspaceId?: string; surfaceId?: string }>;
+        if (notifs && notifs.length > 0) {
+          for (const n of notifs) {
+            sendPushToUser(this.db, session.userId, {
+              title: n.title,
+              body: n.subtitle ? `${n.subtitle}: ${n.body}` : n.body,
+              workspaceId: n.workspaceId,
+              surfaceId: n.surfaceId,
+            });
+          }
         }
       }
     } else if (msg.type === 'agent.heartbeat') {

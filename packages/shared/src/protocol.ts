@@ -16,10 +16,16 @@ export interface SurfaceSelectMessage {
   surfaceId: string;
 }
 
+export interface EncryptedPayload {
+  encrypted: true;
+  iv: string;
+  data: string;
+}
+
 export interface InputMessage {
   type: 'input';
   surfaceId: string;
-  payload: { data: string }; // base64-encoded input bytes
+  payload: { data: string } | EncryptedPayload;
 }
 
 export interface ResizeMessage {
@@ -33,14 +39,15 @@ export type ClientOutgoing =
   | WorkspacesListMessage
   | SurfaceSelectMessage
   | InputMessage
-  | ResizeMessage;
+  | ResizeMessage
+  | E2EInitMessage;
 
 // ─── Server → Client ───
 
 export interface RelayOutputMessage {
   type: 'output';
   surfaceId: string;
-  payload: { data: string };
+  payload: { data: string } | EncryptedPayload;
 }
 
 export interface RelayWorkspacesMessage {
@@ -76,6 +83,18 @@ export interface RelayErrorMessage {
   payload: { message: string };
 }
 
+export interface E2EInitMessage {
+  type: 'e2e.init';
+  publicKey: string;
+}
+
+export interface E2EAckMessage {
+  type: 'e2e.ack';
+  agentPublicKey: string;
+  encryptedSessionKey: string;
+  iv: string;
+}
+
 export type RelayToClient =
   | RelayOutputMessage
   | RelayWorkspacesMessage
@@ -83,7 +102,8 @@ export type RelayToClient =
   | RelaySurfaceActiveMessage
   | RelayPanesMessage
   | RelayNotificationsMessage
-  | RelayErrorMessage;
+  | RelayErrorMessage
+  | E2EAckMessage;
 
 // ─── Agent → Relay ───
 

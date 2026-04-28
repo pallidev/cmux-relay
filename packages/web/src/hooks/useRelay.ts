@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import type { WorkspaceInfo, SurfaceInfo, PaneInfo, FrameRect, CmuxNotification } from '@cmux-relay/shared';
+import type { WorkspaceInfo, SurfaceInfo, PaneInfo, FrameRect, CmuxNotification, EncryptedPayload } from '@cmux-relay/shared';
+import { ClientE2ECrypto } from '../lib/e2e-crypto';
 
 type RelayStatus = 'connecting' | 'connected' | 'disconnected';
 
@@ -7,10 +8,12 @@ interface UseRelayOptions {
   url: string;
   token?: string;
   sessionId?: string;
+  e2eEnabled?: boolean;
 }
 
-export function useRelay({ url, token, sessionId }: UseRelayOptions) {
+export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions) {
   const wsRef = useRef<WebSocket | null>(null);
+  const e2eRef = useRef<ClientE2ECrypto | null>(null);
   const [status, setStatus] = useState<RelayStatus>('disconnected');
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([]);
   const [surfaces, setSurfaces] = useState<SurfaceInfo[]>([]);
@@ -19,6 +22,7 @@ export function useRelay({ url, token, sessionId }: UseRelayOptions) {
   const [activeSurfaceId, setActiveSurfaceId] = useState<string | null>(null);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<CmuxNotification[]>([]);
+  const [e2eReady, setE2eReady] = useState(false);
   const outputCbRef = useRef<(surfaceId: string, data: string) => void>(() => {});
   const notificationCbRef = useRef<(notifications: CmuxNotification[]) => void>(() => {});
 
@@ -38,24 +42,48 @@ export function useRelay({ url, token, sessionId }: UseRelayOptions) {
     let reconnectDelay = 1000;
     let hiddenAt = 0;
 
-    const connect = () => {
+    const connect = async () => {
       if (disposed) return;
 
       const ws = new WebSocket(url);
       wsRef.current = ws;
       setStatus('connecting');
 
-      ws.onopen = () => {
+      ws.onopen = async () => {
         if (disposed) return;
         reconnectDelay = 1000;
         setStatus('connected');
+
         if (token) {
           ws.send(JSON.stringify({ type: 'auth', payload: { token } }));
         }
+
+        if (e2eEnabled) {
+          try {
+            const e2e = new ClientE2ECrypto();
+            const publicKey = await e2e.initialize();
+            e2eRef.current = e2e;
+            ws.send(JSON.stringify({ type: 'e2e.init', publicKey }));
+          } catch (err) {
+            console.error('[e2e] Key generation failed:', err);
+          }
+        }
       };
 
-      ws.onmessage = (event) => {
+      ws.onmessage = async (event) => {
+        if (disposed) return;
         const msg = JSON.parse(event.data as string);
+
+        if (msg.type === 'e2e.ack') {
+          try {
+            await e2eRef.current?.handleE2EAck(msg);
+            setE2eReady(true);
+          } catch (err) {
+            console.error('[e2e] Handshake failed:', err);
+          }
+          return;
+        }
+
         switch (msg.type) {
           case 'workspaces':
             setWorkspaces(msg.payload.workspaces);
@@ -87,7 +115,16 @@ export function useRelay({ url, token, sessionId }: UseRelayOptions) {
             setActiveWorkspaceId(msg.workspaceId);
             break;
           case 'output':
-            outputCbRef.current(msg.surfaceId, msg.payload.data);
+            if (msg.payload.encrypted && e2eRef.current?.isReady()) {
+              try {
+                const decrypted = await e2eRef.current.decryptOutput(msg.payload as EncryptedPayload);
+                outputCbRef.current(msg.surfaceId, decrypted);
+              } catch (err) {
+                console.error('[e2e] Decrypt failed:', err);
+              }
+            } else {
+              outputCbRef.current(msg.surfaceId, msg.payload.data);
+            }
             break;
           case 'notifications':
             setNotifications(prev => {
@@ -107,6 +144,8 @@ export function useRelay({ url, token, sessionId }: UseRelayOptions) {
         if (disposed) return;
         wsRef.current = null;
         setStatus('disconnected');
+        setE2eReady(false);
+        e2eRef.current = null;
         reconnectTimer = setTimeout(connect, reconnectDelay);
         reconnectDelay = Math.min(reconnectDelay * 2, 10000);
       };
@@ -143,7 +182,7 @@ export function useRelay({ url, token, sessionId }: UseRelayOptions) {
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [url, token, sessionId]);
+  }, [url, token, sessionId, e2eEnabled]);
 
   const selectSurface = useCallback((surfaceId: string) => {
     wsRef.current?.send(JSON.stringify({ type: 'surface.select', surfaceId }));
@@ -153,19 +192,32 @@ export function useRelay({ url, token, sessionId }: UseRelayOptions) {
     wsRef.current?.send(JSON.stringify({ type: 'workspaces.list' }));
   }, []);
 
-  const sendInput = useCallback((surfaceId: string, data: string) => {
+  const sendInput = useCallback(async (surfaceId: string, data: string) => {
     const bytes = new TextEncoder().encode(data);
     let binary = '';
     for (let i = 0; i < bytes.length; i++) {
       binary += String.fromCharCode(bytes[i]);
     }
-    wsRef.current?.send(
-      JSON.stringify({
-        type: 'input',
-        surfaceId,
-        payload: { data: btoa(binary) },
-      }),
-    );
+    const b64Data = btoa(binary);
+
+    if (e2eRef.current?.isReady()) {
+      const encrypted = await e2eRef.current.encryptInput(b64Data);
+      wsRef.current?.send(
+        JSON.stringify({
+          type: 'input',
+          surfaceId,
+          payload: encrypted,
+        }),
+      );
+    } else {
+      wsRef.current?.send(
+        JSON.stringify({
+          type: 'input',
+          surfaceId,
+          payload: { data: b64Data },
+        }),
+      );
+    }
   }, []);
 
   const sendResize = useCallback((surfaceId: string, cols: number, rows: number) => {
@@ -174,5 +226,5 @@ export function useRelay({ url, token, sessionId }: UseRelayOptions) {
     );
   }, []);
 
-  return { status, workspaces, surfaces, panes, containerFrames, activeSurfaceId, activeWorkspaceId, notifications, selectSurface, requestWorkspaces, sendInput, sendResize, onOutput, onNotifications };
+  return { status, workspaces, surfaces, panes, containerFrames, activeSurfaceId, activeWorkspaceId, notifications, e2eReady, selectSurface, requestWorkspaces, sendInput, sendResize, onOutput, onNotifications };
 }

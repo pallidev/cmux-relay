@@ -190,10 +190,49 @@ cmux-relay/
 
 ### Security
 
+- **End-to-end encryption** — Terminal input/output encrypted with AES-256-GCM. The relay server cannot read your terminal data.
+- **ECDH key exchange** — Session keys established via P-256 ECDH during each connection. Keys are never transmitted in plaintext.
 - **GitHub OAuth** — Login with your GitHub account
 - **JWT sessions** — Cookie-based auth (30-day expiry)
 - **API tokens** — SHA-256 hashed, auto-generated during pairing
 - **TLS** — End-to-end HTTPS/WSS
+
+#### How E2E encryption works
+
+```
+Agent                              Relay                              Client (Browser)
+  │                                   │                                   │
+  │  Generates ECDH key pair          │                                   │
+  │  Generates random session key     │                                   │
+  │                                   │                                   │
+  │                                   │   ◄── WebSocket connect ──────────│
+  │                                   │                                   │
+  │   ◄── client.data: e2e.init ─────│◄── e2e.init (client pubKey) ─────│
+  │                                   │                                   │
+  │  ECDH(agentPriv, clientPub) → KEK│                                   │
+  │  AES(sessionKey, KEK) → token    │                                   │
+  │                                   │                                   │
+  │   ── agent.data: e2e.ack ───────►│── e2e.ack (agentPubKey, token) ──►│
+  │                                   │                                   │
+  │                                   │                  ECDH(clientPriv, agentPub) → KEK
+  │                                   │                  Decrypt token → session key
+  │                                   │                                   │
+  │  ═══════════ All terminal data encrypted with AES-256-GCM ═════════════
+  │   ── encrypted output ──────────►│── forward opaque blob ──────────►│
+  │   ◄── encrypted input ──────────│◄─ encrypted input ───────────────│
+```
+
+**What the relay can see:**
+- Connection metadata (IP addresses, timestamps)
+- Message types (output, input, workspace info)
+- Workspace/surface names (for navigation)
+
+**What the relay cannot see:**
+- Terminal content — encrypted with AES-256-GCM
+- Keyboard input — encrypted before leaving the browser
+- Session encryption keys — never stored on the relay
+
+**Code audit:** All source code is open and auditable at [github.com/pallidev/cmux-relay](https://github.com/pallidev/cmux-relay). The relay server code (`packages/relay/`) has no crypto dependencies and never decrypts terminal data.
 
 ## CLI Options
 

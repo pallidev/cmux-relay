@@ -44,7 +44,7 @@ function RelaySessionInner({ wsUrl, onDisconnect }: { wsUrl: string; onDisconnec
     sendResize,
     onOutput,
     onNotifications,
-  } = useRelay({ url: wsUrl });
+  } = useRelay({ url: wsUrl, e2eEnabled: true });
 
   useEffect(() => {
     if (status === 'disconnected') onDisconnect?.();

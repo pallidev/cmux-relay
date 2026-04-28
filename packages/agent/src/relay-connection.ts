@@ -1,7 +1,8 @@
 import WebSocket from 'ws';
 import { encodeMessage, decodeMessage } from '@cmux-relay/shared';
-import type { AgentOutgoing, RelayToAgent, ClientOutgoing, RelayToClient } from '@cmux-relay/shared';
+import type { AgentOutgoing, RelayToAgent, ClientOutgoing, RelayToClient, EncryptedPayload } from '@cmux-relay/shared';
 import { execFileSync } from 'node:child_process';
+import type { AgentE2ECrypto } from './e2e-crypto.js';
 
 type ClientDataHandler = (msg: ClientOutgoing) => void;
 
@@ -18,10 +19,12 @@ export class RelayConnection {
   private isConnecting = false;
   private intentionallyClosed = false;
   private onTokenCb: ((token: string) => void) | null = null;
+  private e2e: AgentE2ECrypto | null;
 
-  constructor(relayUrl: string, apiToken?: string) {
+  constructor(relayUrl: string, apiToken?: string, e2e?: AgentE2ECrypto) {
     this.relayUrl = relayUrl;
     this.apiToken = apiToken || null;
+    this.e2e = e2e || null;
   }
 
   onToken(handler: (token: string) => void): void {
@@ -76,7 +79,7 @@ export class RelayConnection {
           this.isConnecting = false;
           reject(new Error(msg.reason));
         } else if (msg.type === 'client.data') {
-          this.onClientDataCb?.(msg.payload);
+          this.handleIncomingClientData(msg.payload);
         } else if (msg.type === 'client.connected') {
           console.log('[agent] Client connected via relay');
           this.onClientConnectedCb?.();
@@ -105,6 +108,62 @@ export class RelayConnection {
         }
       });
     });
+  }
+
+  private async handleIncomingClientData(msg: ClientOutgoing): Promise<void> {
+    if (msg.type === 'e2e.init') {
+      if (!this.e2e?.isReady()) return;
+      try {
+        const ack = await this.e2e.handleE2EInit(msg.publicKey);
+        this.sendRaw(ack);
+      } catch (err) {
+        console.error('[agent] E2E handshake failed:', err);
+      }
+      return;
+    }
+
+    if (msg.type === 'input') {
+      const payload = msg.payload;
+      if ('encrypted' in payload && payload.encrypted) {
+        if (!this.e2e?.isReady()) return;
+        try {
+          const decrypted = await this.e2e.decryptInput(payload as EncryptedPayload);
+          this.onClientDataCb?.({
+            type: 'input',
+            surfaceId: msg.surfaceId,
+            payload: { data: decrypted },
+          });
+          return;
+        } catch (err) {
+          console.error('[agent] E2E decrypt failed:', err);
+          return;
+        }
+      }
+    }
+
+    this.onClientDataCb?.(msg);
+  }
+
+  async send(payload: RelayToClient): Promise<void> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+
+    if (payload.type === 'output' && this.e2e?.isReady()) {
+      const encryptedPayload = await this.e2e.encryptOutput(payload.payload.data);
+      this.sendRaw({
+        type: 'output',
+        surfaceId: payload.surfaceId,
+        payload: encryptedPayload,
+      } as RelayToClient);
+      return;
+    }
+
+    this.sendRaw(payload);
+  }
+
+  private sendRaw(payload: RelayToClient): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(encodeMessage({ type: 'agent.data', payload }));
+    }
   }
 
   private async reconnectWithToken(): Promise<string> {
@@ -144,7 +203,7 @@ export class RelayConnection {
       const msg = decodeMessage<RelayToAgent>(data);
 
       if (msg.type === 'client.data') {
-        this.onClientDataCb?.(msg.payload);
+        this.handleIncomingClientData(msg.payload);
       } else if (msg.type === 'client.connected') {
         console.log('[agent] Client connected via relay');
         this.onClientConnectedCb?.();
@@ -153,12 +212,6 @@ export class RelayConnection {
         this.onClientDisconnectedCb?.();
       }
     });
-  }
-
-  send(payload: RelayToClient): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(encodeMessage({ type: 'agent.data', payload }));
-    }
   }
 
   onClientData(handler: ClientDataHandler): void {

@@ -64,11 +64,23 @@ See the [full repository](https://github.com/pallidev/cmux-relay) for relay serv
 
 - **Real-time streaming** — Terminal output via WebSocket + PTY capture
 - **Bidirectional input** — Send commands from any device
+- **End-to-end encryption** — Terminal data encrypted with AES-256-GCM via ECDH key exchange. The relay server cannot read your terminal content.
 - **Multi-workspace** — Switch between all cmux workspaces
 - **Split pane layout** — Pixel-perfect cmux pane positioning
 - **Mobile optimized** — Touch-friendly terminal with tab navigation
 - **Notifications** — In-app toasts for agent events
 - **Auto-reconnect** — Exponential backoff with session recovery
+
+## Security
+
+Terminal input and output are encrypted end-to-end between the agent and your browser:
+
+- **AES-256-GCM** — All terminal data encrypted before leaving your Mac
+- **ECDH P-256** — Session keys established via key exchange; never sent in plaintext
+- **Zero knowledge relay** — The relay server only sees encrypted blobs, never your terminal content
+- **No stored keys on server** — Encryption keys exist only on your Mac and in your browser session
+
+The relay cannot decrypt your data — not now, not ever. [Full source code is open for audit](https://github.com/pallidev/cmux-relay).
 
 ## License
 

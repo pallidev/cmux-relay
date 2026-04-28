@@ -4,6 +4,7 @@ import { InputHandler } from './input-handler.js';
 import { SessionStore } from './session-store.js';
 import { createWSServer } from './ws-server.js';
 import { RelayConnection } from './relay-connection.js';
+import { AgentE2ECrypto } from './e2e-crypto.js';
 import { handleClientMessage } from './message-handler.js';
 import type { ServerDeps, TlsOptions } from './ws-server.js';
 import type { MessageHandlerDeps } from './message-handler.js';
@@ -367,8 +368,12 @@ async function runCloudMode(savedAuth: AuthData | null) {
   const token = apiToken || savedAuth?.token || undefined;
   const url = relayUrl || savedAuth?.relayUrl || 'wss://relay.gateway.myaddr.io/ws/agent';
 
+  const e2e = new AgentE2ECrypto();
+  await e2e.initialize();
+  console.log('[agent] E2E encryption initialized');
+
   console.log('Connecting to relay server...');
-  const relay = new RelayConnection(url, token);
+  const relay = new RelayConnection(url, token, e2e);
 
   if (!token) {
     relay.onToken(async (newToken) => {
@@ -400,7 +405,7 @@ async function runCloudMode(savedAuth: AuthData | null) {
   openUrl(webUrl);
 
   // Broadcast via relay instead of direct WebSocket
-  const broadcastViaRelay = (msg: RelayToClient) => {
+  const broadcastViaRelay = async (msg: RelayToClient) => {
     relay.send(msg);
   };
 

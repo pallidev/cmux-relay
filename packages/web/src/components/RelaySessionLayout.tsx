@@ -4,7 +4,7 @@ import { useMobile } from '../hooks/useMobile';
 import { MobileLayout } from './MobileLayout';
 import { Terminal, writeToTerminal } from './Terminal';
 import { getRelayWsUrl, getToastType } from '../lib/helpers';
-import { registerServiceWorker, subscribePush, getPendingNavigation } from '../lib/push';
+import { registerServiceWorker, subscribePush, getPendingNavigation, onNavigateFromPush } from '../lib/push';
 import type { PaneInfo, CmuxNotification } from '@cmux-relay/shared';
 
 export function RelaySessionLayout({ sessionId, onDisconnect }: { sessionId: string; onDisconnect?: () => void }) {
@@ -103,6 +103,11 @@ function RelaySessionInner({ wsUrl, onDisconnect }: { wsUrl: string; onDisconnec
         if (nav.surfaceId) selectSurface(nav.surfaceId);
       }
     });
+    const cleanup = onNavigateFromPush((nav) => {
+      if (nav.workspaceId) setSelectedWorkspaceId(nav.workspaceId);
+      if (nav.surfaceId) selectSurface(nav.surfaceId);
+    });
+    return cleanup;
   }, []);
 
   onNotifications(useCallback((newNotifs: CmuxNotification[]) => {

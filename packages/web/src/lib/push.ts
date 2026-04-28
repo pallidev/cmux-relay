@@ -21,6 +21,20 @@ export interface PendingNavigation {
   surfaceId: string | null;
 }
 
+export function onNavigateFromPush(callback: (nav: PendingNavigation) => void): () => void {
+  if (!('serviceWorker' in navigator)) return () => {};
+  const handler = (event: MessageEvent) => {
+    if (event.data?.type === 'NAVIGATE') {
+      callback({
+        workspaceId: event.data.workspaceId,
+        surfaceId: event.data.surfaceId ?? null,
+      });
+    }
+  };
+  navigator.serviceWorker.addEventListener('message', handler);
+  return () => navigator.serviceWorker.removeEventListener('message', handler);
+}
+
 export async function getPendingNavigation(): Promise<PendingNavigation | null> {
   try {
     const db = await openDB();

@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { useRelay } from '../hooks/useRelay';
 import { Terminal, writeToTerminal } from './Terminal';
 import { getRelayWsUrl, getToastType } from '../lib/helpers';
-import { registerServiceWorker, subscribePush, getPendingNavigation } from '../lib/push';
+import { registerServiceWorker, subscribePush, getPendingNavigation, onNavigateFromPush } from '../lib/push';
 import type { CmuxNotification } from '@cmux-relay/shared';
 
 const RELAY_URL = getRelayWsUrl();
@@ -133,6 +133,16 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
         }
       }
     });
+
+    // Listen for navigation messages from service worker (app already open)
+    const cleanup = onNavigateFromPush((nav) => {
+      if (nav.workspaceId) setSelectedWorkspaceId(nav.workspaceId);
+      if (nav.surfaceId) {
+        setSelectedSurfaceId(nav.surfaceId);
+        selectSurface(nav.surfaceId);
+      }
+    });
+    return cleanup;
   }, []);
 
   // Browser notification callback

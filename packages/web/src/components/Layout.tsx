@@ -4,7 +4,7 @@ import { useMobile } from '../hooks/useMobile';
 import { MobileLayout } from './MobileLayout';
 import { Terminal, writeToTerminal } from './Terminal';
 import { getRelayWsUrl, getToastType } from '../lib/helpers';
-import { registerServiceWorker, subscribePush, getPendingNavigation } from '../lib/push';
+import { registerServiceWorker, subscribePush, getPendingNavigation, onNavigateFromPush } from '../lib/push';
 import type { PaneInfo, CmuxNotification } from '@cmux-relay/shared';
 
 const RELAY_URL = getRelayWsUrl();
@@ -107,6 +107,11 @@ export function Layout() {
         if (nav.surfaceId) selectSurface(nav.surfaceId);
       }
     });
+    const cleanup = onNavigateFromPush((nav) => {
+      if (nav.workspaceId) setSelectedWorkspaceId(nav.workspaceId);
+      if (nav.surfaceId) selectSurface(nav.surfaceId);
+    });
+    return cleanup;
   }, []);
 
   // Keep onNotifications wired for browser notifications

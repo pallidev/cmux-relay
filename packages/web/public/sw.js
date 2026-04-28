@@ -58,14 +58,19 @@ self.addEventListener('notificationclick', (event) => {
 
   event.waitUntil(
     (async () => {
-      if (workspaceId) {
-        await savePendingNavigation({ workspaceId, surfaceId });
-      }
       const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       for (const client of clients) {
         if (client.url.includes(self.location.origin) && 'focus' in client) {
+          // Send navigation data directly to the already-open client
+          if (workspaceId) {
+            client.postMessage({ type: 'NAVIGATE', workspaceId, surfaceId });
+          }
           return client.focus();
         }
+      }
+      // No existing client — save for app to read on launch
+      if (workspaceId) {
+        await savePendingNavigation({ workspaceId, surfaceId });
       }
       return self.clients.openWindow('/');
     })(),

@@ -47,6 +47,8 @@ export function DashboardPage({ jwt }: { jwt: string }) {
     getPendingNavigation().then((nav) => {
       if (nav) {
         localStorage.setItem('cmux-session-id', sessionId);
+        // Preserve navigation data for RelaySessionLayout to consume
+        localStorage.setItem('cmux-relay-pending-nav', JSON.stringify(nav));
         window.location.href = '/terminal';
       }
     });

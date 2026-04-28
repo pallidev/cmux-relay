@@ -4,7 +4,7 @@ import { useMobile } from '../hooks/useMobile';
 import { MobileLayout } from './MobileLayout';
 import { Terminal, writeToTerminal } from './Terminal';
 import { getRelayWsUrl, getToastType } from '../lib/helpers';
-import { registerServiceWorker, subscribePush, getPendingNavigation, onNavigateFromPush } from '../lib/push';
+import { registerServiceWorker, subscribePush, getPendingNavigation, getPendingNavigationFromStorage, onNavigateFromPush } from '../lib/push';
 import type { PaneInfo, CmuxNotification } from '@cmux-relay/shared';
 
 export function RelaySessionLayout({ sessionId, onDisconnect }: { sessionId: string; onDisconnect?: () => void }) {
@@ -97,12 +97,20 @@ function RelaySessionInner({ wsUrl, onDisconnect }: { wsUrl: string; onDisconnec
 
   // Handle pending navigation from push notification click
   useEffect(() => {
-    getPendingNavigation().then((nav) => {
-      if (nav) {
-        if (nav.workspaceId) setSelectedWorkspaceId(nav.workspaceId);
-        if (nav.surfaceId) selectSurface(nav.surfaceId);
-      }
-    });
+    // Check localStorage first (set by DashboardPage during redirect)
+    const storedNav = getPendingNavigationFromStorage();
+    if (storedNav) {
+      if (storedNav.workspaceId) setSelectedWorkspaceId(storedNav.workspaceId);
+      if (storedNav.surfaceId) selectSurface(storedNav.surfaceId);
+    } else {
+      // Direct IndexedDB check (PWA opened fresh)
+      getPendingNavigation().then((nav) => {
+        if (nav) {
+          if (nav.workspaceId) setSelectedWorkspaceId(nav.workspaceId);
+          if (nav.surfaceId) selectSurface(nav.surfaceId);
+        }
+      });
+    }
     const cleanup = onNavigateFromPush((nav) => {
       if (nav.workspaceId) setSelectedWorkspaceId(nav.workspaceId);
       if (nav.surfaceId) selectSurface(nav.surfaceId);

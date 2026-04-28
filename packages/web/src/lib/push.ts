@@ -57,6 +57,17 @@ export async function getPendingNavigation(): Promise<PendingNavigation | null> 
   }
 }
 
+export function getPendingNavigationFromStorage(): PendingNavigation | null {
+  try {
+    const raw = localStorage.getItem('cmux-relay-pending-nav');
+    if (!raw) return null;
+    localStorage.removeItem('cmux-relay-pending-nav');
+    return JSON.parse(raw) as PendingNavigation;
+  } catch {
+    return null;
+  }
+}
+
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
   if (!('serviceWorker' in navigator)) return null;
   try {

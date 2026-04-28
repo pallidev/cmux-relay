@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { getPendingNavigation } from '../lib/push';
 
 interface Viewer {
   ip: string;
@@ -39,6 +40,16 @@ export function DashboardPage({ jwt }: { jwt: string }) {
     const interval = setInterval(fetchSessions, 3000);
     return () => clearInterval(interval);
   }, [jwt, fetchSessions]);
+
+  // Auto-navigate to terminal if arriving from push notification
+  useEffect(() => {
+    getPendingNavigation().then((nav) => {
+      if (nav && sessionId) {
+        localStorage.setItem('cmux-session-id', sessionId);
+        window.location.href = '/terminal';
+      }
+    });
+  }, [sessionId]);
 
   const handleLogout = () => {
     document.cookie = 'relay_jwt=; Path=/; Max-Age=0';

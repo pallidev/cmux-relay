@@ -1,0 +1,10 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "io.pallidev.cmuxrelay",
+    "sha256_cert_fingerprints": [
+      "70:91:13:85:99:C9:E4:86:D0:0A:6F:47:28:21:8B:EB:A3:29:50:3E:EE:3F:86:D0:D2:45:3E:07:A7:DC:60:4E"
+    ]
+  }
+}]

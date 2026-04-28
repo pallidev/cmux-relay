@@ -90,31 +90,38 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
   }, []));
 
   // Browser notification + push subscription
+  const [notifPermission, setNotifPermission] = useState(() =>
+    typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
+  );
   const pushInitialized = useRef(false);
 
   useEffect(() => {
     if (status !== 'connected' || pushInitialized.current) return;
     pushInitialized.current = true;
 
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().then(async (p) => {
-        if (p === 'granted') {
-          const reg = await registerServiceWorker();
-          if (reg) await subscribePush(reg);
-          if (pendingBrowserNotifs.current.length > 0) {
-            for (const n of pendingBrowserNotifs.current) {
-              new Notification(n.title, { body: n.subtitle ? `${n.subtitle}: ${n.body}` : n.body, tag: n.id });
-            }
-            pendingBrowserNotifs.current = [];
-          }
-        }
-      });
-    } else if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+    // Auto-subscribe if already granted (no user gesture needed)
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
       registerServiceWorker().then((reg) => {
         if (reg) subscribePush(reg);
       });
     }
   }, [status]);
+
+  const handleEnableNotifications = async () => {
+    if (typeof Notification === 'undefined') return;
+    const p = await Notification.requestPermission();
+    setNotifPermission(p);
+    if (p === 'granted') {
+      const reg = await registerServiceWorker();
+      if (reg) await subscribePush(reg);
+      if (pendingBrowserNotifs.current.length > 0) {
+        for (const n of pendingBrowserNotifs.current) {
+          new Notification(n.title, { body: n.subtitle ? `${n.subtitle}: ${n.body}` : n.body, tag: n.id });
+        }
+        pendingBrowserNotifs.current = [];
+      }
+    }
+  };
 
   // Handle pending navigation from push notification click
   useEffect(() => {
@@ -326,6 +333,9 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
             &#8250;
           </button>
           <a href="/" className="dashboard-btn" title="Dashboard">&#x2302;</a>
+          {notifPermission === 'default' && (
+            <button className="mobile-nav-btn notif-enable-btn" onClick={handleEnableNotifications} title="Enable notifications">&#x1F514;</button>
+          )}
         </header>
 
         {/* Tab bar: surfaces in current workspace */}

@@ -129,9 +129,14 @@ function getJwt(): string | null {
   return match ? match[1] : localStorage.getItem('cmux-relay-token') ?? null;
 }
 
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
+function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
   const rawData = atob(base64);
-  return Uint8Array.from(rawData, (char) => char.charCodeAt(0));
+  const buffer = new ArrayBuffer(rawData.length);
+  const array = new Uint8Array(buffer);
+  for (let i = 0; i < rawData.length; i++) {
+    array[i] = rawData.charCodeAt(i);
+  }
+  return array;
 }

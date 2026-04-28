@@ -183,9 +183,10 @@ cmux-relay/
 ### Notifications
 
 - **cmux notification polling** — Polls every 2 seconds
-- **Browser push notifications** — Native OS notifications
+- **Mobile push notifications** — System notifications on iOS/Android via PWA (Web Push + VAPID)
 - **In-app toast popups** — Color-coded with auto-dismiss
-- **Click-to-navigate** — Jump to relevant workspace/surface
+- **Click-to-navigate** — Tap a notification to jump to the relevant workspace/surface
+- **Install prompt banner** — Guides mobile users to install the PWA
 
 ### Security
 

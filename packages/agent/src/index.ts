@@ -243,6 +243,7 @@ async function runLocalMode() {
   await syncAll();
 
   const knownNotificationIds = new Set<string>();
+  let firstPoll = true;
   const pollNotifications = async () => {
     try {
       if (!cmux.isConnected()) return;
@@ -254,17 +255,15 @@ async function runLocalMode() {
         knownNotificationIds.add(n.id);
       }
 
-      if (newNotifications.length > 0) {
-        console.log(`New cmux notifications: ${newNotifications.map(n => n.title).join(', ')}`);
-      }
-
       store.updateNotifications(notifications);
-      if (newNotifications.length > 0) {
+      if (!firstPoll && newNotifications.length > 0) {
+        console.log(`New cmux notifications: ${newNotifications.map(n => n.title).join(', ')}`);
         store.broadcastToClients({
           type: 'notifications',
           payload: { notifications: newNotifications },
         });
       }
+      firstPoll = false;
     } catch {
       // ignore polling errors
     }
@@ -463,6 +462,7 @@ async function runCloudMode(savedAuth: AuthData | null) {
   await syncAll();
 
   const knownNotificationIds = new Set<string>();
+  let firstPoll = true;
   const pollNotifications = async () => {
     try {
       if (!cmux.isConnected()) return;
@@ -472,9 +472,10 @@ async function runCloudMode(savedAuth: AuthData | null) {
       for (const n of notifications) knownNotificationIds.add(n.id);
 
       store.updateNotifications(notifications);
-      if (newNotifications.length > 0) {
+      if (!firstPoll && newNotifications.length > 0) {
         broadcastViaRelay({ type: 'notifications', payload: { notifications: newNotifications } });
       }
+      firstPoll = false;
     } catch {
       // ignore
     }

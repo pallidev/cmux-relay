@@ -45,11 +45,23 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
     const connect = async () => {
       if (disposed) return;
 
+      // Pre-generate E2E keys before connecting to minimize handshake latency
+      let e2e: ClientE2ECrypto | null = null;
+      let e2ePublicKey: string | null = null;
+      if (e2eEnabled) {
+        try {
+          e2e = new ClientE2ECrypto();
+          e2ePublicKey = await e2e.initialize();
+        } catch (err) {
+          console.error('[e2e] Key generation failed:', err);
+        }
+      }
+
       const ws = new WebSocket(url);
       wsRef.current = ws;
       setStatus('connecting');
 
-      ws.onopen = async () => {
+      ws.onopen = () => {
         if (disposed) return;
         reconnectDelay = 1000;
         setStatus('connected');
@@ -58,15 +70,9 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
           ws.send(JSON.stringify({ type: 'auth', payload: { token } }));
         }
 
-        if (e2eEnabled) {
-          try {
-            const e2e = new ClientE2ECrypto();
-            const publicKey = await e2e.initialize();
-            e2eRef.current = e2e;
-            ws.send(JSON.stringify({ type: 'e2e.init', publicKey }));
-          } catch (err) {
-            console.error('[e2e] Key generation failed:', err);
-          }
+        if (e2e && e2ePublicKey) {
+          e2eRef.current = e2e;
+          ws.send(JSON.stringify({ type: 'e2e.init', publicKey: e2ePublicKey }));
         }
       };
 
@@ -115,13 +121,16 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
             setActiveWorkspaceId(msg.workspaceId);
             break;
           case 'output':
-            if (msg.payload.encrypted && e2eRef.current?.isReady()) {
-              try {
-                const decrypted = await e2eRef.current.decryptOutput(msg.payload as EncryptedPayload);
-                outputCbRef.current(msg.surfaceId, decrypted);
-              } catch (err) {
-                console.error('[e2e] Decrypt failed:', err);
+            if (msg.payload.encrypted) {
+              if (e2eRef.current?.isReady()) {
+                try {
+                  const decrypted = await e2eRef.current.decryptOutput(msg.payload as EncryptedPayload);
+                  outputCbRef.current(msg.surfaceId, decrypted);
+                } catch (err) {
+                  console.error('[e2e] Decrypt failed:', err);
+                }
               }
+              // Skip if E2E not ready — next poll cycle will send fresh output
             } else {
               outputCbRef.current(msg.surfaceId, msg.payload.data);
             }

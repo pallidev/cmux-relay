@@ -112,7 +112,7 @@ export class RelayConnection {
 
   private async handleIncomingClientData(msg: ClientOutgoing): Promise<void> {
     if (msg.type === 'e2e.init') {
-      if (!this.e2e?.isReady()) return;
+      if (!this.e2e?.hasKeys()) return;
       try {
         const ack = await this.e2e.handleE2EInit(msg.publicKey);
         this.sendRaw(ack);

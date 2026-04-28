@@ -30,6 +30,7 @@ export class AgentE2ECrypto {
   private keyPair: CryptoKeyPair | null = null;
   private sessionKey: CryptoKey | null = null;
   private sessionKeyRaw: Uint8Array | null = null;
+  private clientHandshakeDone = false;
 
   async initialize(): Promise<void> {
     const stored = await this.loadKeys();
@@ -59,6 +60,7 @@ export class AgentE2ECrypto {
     );
 
     const { iv, data } = await aesEncrypt(kek, this.sessionKeyRaw);
+    this.clientHandshakeDone = true;
 
     return {
       type: 'e2e.ack',
@@ -84,7 +86,11 @@ export class AgentE2ECrypto {
   }
 
   isReady(): boolean {
-    return this.sessionKey !== null;
+    return this.clientHandshakeDone && this.sessionKey !== null;
+  }
+
+  hasKeys(): boolean {
+    return this.keyPair !== null && this.sessionKey !== null;
   }
 
   private async loadKeys(): Promise<StoredKeys | null> {

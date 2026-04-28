@@ -43,8 +43,9 @@ export function DashboardPage({ jwt }: { jwt: string }) {
 
   // Auto-navigate to terminal if arriving from push notification
   useEffect(() => {
+    if (!sessionId) return;
     getPendingNavigation().then((nav) => {
-      if (nav && sessionId) {
+      if (nav) {
         localStorage.setItem('cmux-session-id', sessionId);
         window.location.href = '/terminal';
       }

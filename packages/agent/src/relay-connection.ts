@@ -6,13 +6,19 @@ import type { AgentE2ECrypto } from './e2e-crypto.js';
 
 type ClientDataHandler = (msg: ClientOutgoing) => void;
 
+const CONNECT_TIMEOUT = 10_000;
+const HEARTBEAT_INTERVAL = 30_000;
+const PONG_TIMEOUT = 10_000;
+
 export class RelayConnection {
   private ws: WebSocket | null = null;
   private relayUrl: string;
   private apiToken: string | null;
   private sessionId: string | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private pongTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private connectTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
   private onClientDataCb: ClientDataHandler | null = null;
   private onClientConnectedCb: (() => void) | null = null;
   private onClientDisconnectedCb: (() => void) | null = null;
@@ -33,13 +39,23 @@ export class RelayConnection {
 
   connect(): Promise<string> {
     return new Promise((resolve, reject) => {
-      if (this.isConnecting) return;
+      if (this.isConnecting) return reject(new Error('Already connecting'));
       this.isConnecting = true;
 
       const url = this.apiToken
         ? `${this.relayUrl}?token=${encodeURIComponent(this.apiToken)}`
         : this.relayUrl;
       const ws = new WebSocket(url);
+
+      let settled = false;
+      this.connectTimeoutTimer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        console.error('[agent] Connection timeout');
+        ws.terminate();
+        this.isConnecting = false;
+        reject(new Error('Connection timeout'));
+      }, CONNECT_TIMEOUT);
 
       ws.on('open', () => {
         console.log('[agent] Connected to relay server');
@@ -55,6 +71,10 @@ export class RelayConnection {
         const msg = decodeMessage<RelayToAgent>(data);
 
         if (msg.type === 'session.created') {
+          if (settled) return;
+          settled = true;
+          clearTimeout(this.connectTimeoutTimer!);
+          this.connectTimeoutTimer = null;
           this.sessionId = msg.sessionId;
           this.isConnecting = false;
           this.ws = ws;
@@ -69,11 +89,16 @@ export class RelayConnection {
           console.log(`[agent] Pairing approved! Token received.`);
           this.apiToken = msg.token;
           this.onTokenCb?.(msg.token);
-          // Reconnect with the new token
           ws.close();
           this.isConnecting = false;
+          clearTimeout(this.connectTimeoutTimer!);
+          this.connectTimeoutTimer = null;
           this.reconnectWithToken().then(resolve, reject);
         } else if (msg.type === 'pairing.rejected') {
+          if (settled) return;
+          settled = true;
+          clearTimeout(this.connectTimeoutTimer!);
+          this.connectTimeoutTimer = null;
           console.error(`[agent] Pairing rejected: ${msg.reason}`);
           ws.close();
           this.isConnecting = false;
@@ -91,20 +116,26 @@ export class RelayConnection {
 
       ws.on('close', (code, reason) => {
         if (this.intentionallyClosed) return;
-        if (!this.sessionId) return;
-        console.log(`[agent] Relay connection closed: ${code} ${reason}`);
-        this.cleanup();
-        this.scheduleReconnect();
+        clearTimeout(this.connectTimeoutTimer!);
+        this.connectTimeoutTimer = null;
+        if (settled) {
+          // Connection was established, now lost
+          console.log(`[agent] Relay connection closed: ${code} ${reason}`);
+          this.cleanup();
+          this.scheduleReconnect();
+        }
+        // If not settled, error handler already took care of it
       });
 
       ws.on('error', (err) => {
         console.error(`[agent] Relay connection error: ${err.message}`);
+        clearTimeout(this.connectTimeoutTimer!);
+        this.connectTimeoutTimer = null;
         this.cleanup();
-        if (this.isConnecting) {
+        if (!settled) {
+          settled = true;
           this.isConnecting = false;
           reject(err);
-        } else {
-          this.scheduleReconnect();
         }
       });
     });
@@ -172,6 +203,12 @@ export class RelayConnection {
     const ws = new WebSocket(url);
 
     return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        ws.terminate();
+        this.isConnecting = false;
+        reject(new Error('Reconnect timeout'));
+      }, CONNECT_TIMEOUT);
+
       ws.on('open', () => {
         ws.send(encodeMessage({ type: 'agent.register' }));
       });
@@ -181,6 +218,7 @@ export class RelayConnection {
         const msg = decodeMessage<RelayToAgent>(data);
 
         if (msg.type === 'session.created') {
+          clearTimeout(timeout);
           this.sessionId = msg.sessionId;
           this.ws = ws;
           this.isConnecting = false;
@@ -191,6 +229,7 @@ export class RelayConnection {
       });
 
       ws.on('error', (err) => {
+        clearTimeout(timeout);
         this.isConnecting = false;
         reject(err);
       });
@@ -233,9 +272,14 @@ export class RelayConnection {
   disconnect(): void {
     this.intentionallyClosed = true;
     this.stopHeartbeat();
+    this.clearPongTimeout();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
+    }
+    if (this.connectTimeoutTimer) {
+      clearTimeout(this.connectTimeoutTimer);
+      this.connectTimeoutTimer = null;
     }
     if (this.ws) {
       this.ws.close();
@@ -246,15 +290,44 @@ export class RelayConnection {
   private startHeartbeat(): void {
     this.heartbeatTimer = setInterval(() => {
       if (this.ws?.readyState === WebSocket.OPEN) {
-        this.ws.send(encodeMessage({ type: 'agent.heartbeat' }));
+        this.ws.ping();
+        this.clearPongTimeout();
+        this.pongTimer = setTimeout(() => {
+          console.error('[agent] Heartbeat timeout — no pong from relay');
+          this.forceClose();
+        }, PONG_TIMEOUT);
+      } else if (this.ws && this.ws.readyState !== WebSocket.CONNECTING) {
+        console.log('[agent] WebSocket not open, forcing reconnect');
+        this.forceClose();
       }
-    }, 30_000);
+    }, HEARTBEAT_INTERVAL);
+
+    // Listen for pong on current ws
+    if (this.ws) {
+      this.ws.on('pong', () => {
+        this.clearPongTimeout();
+      });
+    }
+  }
+
+  private clearPongTimeout(): void {
+    if (this.pongTimer) {
+      clearTimeout(this.pongTimer);
+      this.pongTimer = null;
+    }
   }
 
   private stopHeartbeat(): void {
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
+    }
+    this.clearPongTimeout();
+  }
+
+  private forceClose(): void {
+    if (this.ws) {
+      this.ws.terminate();
     }
   }
 

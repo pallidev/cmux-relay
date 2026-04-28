@@ -3,6 +3,7 @@ import { DashboardPage } from './components/DashboardPage';
 import { LoginPage } from './components/LoginPage';
 import { PairPage } from './components/PairPage';
 import { Layout } from './components/Layout';
+import { InstallBanner } from './components/InstallBanner';
 import { useState, useEffect } from 'react';
 
 function getPairCodeFromPath(): string | null {
@@ -31,7 +32,12 @@ export default function App() {
 
   if (isTerminalPath()) return <TerminalPage />;
 
-  return <HomePage />;
+  return (
+    <>
+      <HomePage />
+      <InstallBanner />
+    </>
+  );
 }
 
 function TerminalPage() {

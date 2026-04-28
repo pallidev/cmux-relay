@@ -20,6 +20,7 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
   const [panes, setPanes] = useState<PaneInfo[]>([]);
   const [containerFrames, setContainerFrames] = useState<Record<string, FrameRect>>({});
   const [activeSurfaceId, setActiveSurfaceId] = useState<string | null>(null);
+  const activeSurfaceIdRef = useRef<string | null>(null);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<CmuxNotification[]>([]);
   const [e2eReady, setE2eReady] = useState(false);
@@ -118,6 +119,7 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
             break;
           case 'surface.active':
             setActiveSurfaceId(msg.surfaceId);
+            activeSurfaceIdRef.current = msg.surfaceId;
             setActiveWorkspaceId(msg.workspaceId);
             break;
           case 'output':
@@ -168,15 +170,20 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
     connect();
 
     // Reconnect when page becomes visible after being hidden
-    // Browsers/proxies may silently kill idle WebSocket connections while
-    // readyState still reports OPEN. Force reconnect after 30s hidden.
+    // Mobile Safari kills WebSocket connections aggressively in background.
     const onVisible = () => {
       if (document.visibilityState === 'visible' && !disposed) {
-        const wasHiddenLong = hiddenAt > 0 && (Date.now() - hiddenAt) > 30_000;
-        if (wasHiddenLong || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        const wasHidden = hiddenAt > 0 && (Date.now() - hiddenAt) > 5_000;
+        if (wasHidden || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
           if (wsRef.current) wsRef.current.close();
           clearTimeout(reconnectTimer);
           connect();
+        } else if (wsRef.current?.readyState === WebSocket.OPEN) {
+          // Still connected — request fresh state in case terminal was blanked
+          wsRef.current.send(JSON.stringify({ type: 'workspaces.list' }));
+          if (activeSurfaceIdRef.current) {
+            wsRef.current.send(JSON.stringify({ type: 'surface.select', surfaceId: activeSurfaceIdRef.current }));
+          }
         }
       } else if (document.visibilityState === 'hidden') {
         hiddenAt = Date.now();

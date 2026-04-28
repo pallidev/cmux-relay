@@ -25,10 +25,10 @@ describe('WebSocket reconnection on idle', () => {
     assert.match(useRelaySource, /hiddenAt\s*=\s*Date\.now\(\)/, 'Should record timestamp on hidden');
   });
 
-  it('forces reconnect when page was hidden for more than 30 seconds', () => {
-    assert.ok(useRelaySource.includes('wasHiddenLong'), 'Should compute wasHiddenLong flag');
-    assert.match(useRelaySource, /30_000|30000/, 'Should use 30 second threshold');
-    assert.match(useRelaySource, /wasHiddenLong/, 'Should check wasHiddenLong in reconnect condition');
+  it('forces reconnect when page was hidden for more than 5 seconds', () => {
+    assert.ok(useRelaySource.includes('wasHidden'), 'Should compute wasHidden flag');
+    assert.match(useRelaySource, /5_000|5000/, 'Should use 5 second threshold');
+    assert.match(useRelaySource, /wasHidden/, 'Should check wasHidden in reconnect condition');
   });
 
   it('closes stale connection before reconnecting', () => {

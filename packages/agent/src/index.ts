@@ -383,6 +383,10 @@ async function runCloudMode(savedAuth: AuthData | null) {
 
   const lastOutput = new Map<string, string>();
 
+  relay.onClientConnected(() => {
+    lastOutput.clear();
+  });
+
   relay.onClientData(async (msg) => {
     const clientId = 'cloud-client';
     await handleClientMessage(

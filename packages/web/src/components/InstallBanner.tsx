@@ -92,11 +92,11 @@ export function InstallBanner() {
           <div className="install-banner-title">앱으로 설치하기</div>
           <div className="install-banner-desc">
             {iosMode ? (
-              <>하단 <strong>공유 버튼</strong> → <strong>&quot;홈 화면에 추가&quot;</strong></>
+              <>하단 <strong>공유 버튼</strong> → <strong>{'"'}홈 화면에 추가{'"'}</strong></>
             ) : hasNativePrompt ? (
               '홈 화면에 추가하면 알림을 바로 받을 수 있습니다'
             ) : (
-              '브라우저 메뉴에서 &quot;홈 화면에 추가&quot;를 선택하세요'
+              <>브라우저 메뉴 ⋮ → <strong>{'"'}홈 화면에 추가{'"'}</strong></>
             )}
           </div>
         </div>

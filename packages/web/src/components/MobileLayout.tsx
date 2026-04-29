@@ -51,6 +51,7 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
 
   const {
     status,
+    transport,
     workspaces,
     surfaces,
     panes,
@@ -329,6 +330,7 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
           <span className="status">
             <span className={`status-dot ${status}`} />
           </span>
+		          <span className={`transport-badge ${transport}`}>{transport === 'p2p' ? 'P2P' : 'Relay'}</span>
           <span className="mobile-header-title">
             {currentWs?.title || 'cmux-relay'}
           </span>

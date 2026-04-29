@@ -12,6 +12,7 @@ import type { WorkspaceInfo, SurfaceInfo, PaneInfo, RelayToClient } from '@cmux-
 import { readFile, writeFile, unlink, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import qrcode from 'qrcode-terminal';
 
 function openUrl(url: string): void {
   try {
@@ -403,9 +404,14 @@ async function runCloudMode(savedAuth: AuthData | null) {
 
   const sessionId = await relay.connect();
   const webUrl = process.env.CMUX_WEB_URL || 'https://cmux.gateway.myaddr.io';
-  const sessionUrl = `${webUrl}/s/${sessionId}`;
-  console.log(`\n  Session ready: ${sessionUrl}\n`);
-  openUrl(webUrl);
+  const terminalUrl = `${webUrl}/terminal`;
+  console.log(`\n  Session ready: ${terminalUrl}\n`);
+  if (token) {
+    qrcode.generate(terminalUrl, { small: true }, (qr: string) => {
+      console.log('\n' + qr);
+      console.log(`\n  Scan QR code or open: ${terminalUrl}\n`);
+    });
+  }
 
   // Broadcast via relay instead of direct WebSocket
   const broadcastViaRelay = async (msg: RelayToClient) => {

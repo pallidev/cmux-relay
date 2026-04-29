@@ -63,6 +63,8 @@ See the [full repository](https://github.com/pallidev/cmux-relay) for relay serv
 ## Features
 
 - **Real-time streaming** — Terminal output via WebSocket + PTY capture
+- **P2P data transfer** — WebRTC DataChannel connects directly to the browser. Relay server only handles signaling.
+- **Automatic fallback** — Seamless fallback to relay-forwarded WebSocket if P2P fails (NAT/firewall)
 - **Bidirectional input** — Send commands from any device
 - **End-to-end encryption** — Terminal data encrypted with AES-256-GCM via ECDH key exchange. The relay server cannot read your terminal content.
 - **Multi-workspace** — Switch between all cmux workspaces
@@ -76,8 +78,9 @@ See the [full repository](https://github.com/pallidev/cmux-relay) for relay serv
 Terminal input and output are encrypted end-to-end between the agent and your browser:
 
 - **AES-256-GCM** — All terminal data encrypted before leaving your Mac
+- **DTLS** — WebRTC DataChannel encrypted with DTLS for P2P connections
 - **ECDH P-256** — Session keys established via key exchange; never sent in plaintext
-- **Zero knowledge relay** — The relay server only sees encrypted blobs, never your terminal content
+- **Zero knowledge relay** — The relay server only sees encrypted blobs (or nothing at all in P2P mode), never your terminal content
 - **No stored keys on server** — Encryption keys exist only on your Mac and in your browser session
 
 The relay cannot decrypt your data — not now, not ever. [Full source code is open for audit](https://github.com/pallidev/cmux-relay).

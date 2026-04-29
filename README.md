@@ -111,22 +111,30 @@ Or build and publish the agent package with your relay URL as default.
 ┌──────────────────────────┐         ┌──────────────────────┐
 │  Your Mac                │         │  Relay Server        │
 │                          │         │  (Mac Mini / VPS)    │
-│  cmux ─socket─► Agent    │  WS     │                      │
-│  (Ghostty)     │         ├────────►│  Session matching    │
-│                PTY       │         │  Data bridge         │
-│                Capture   │         │  GitHub OAuth        │
+│  cmux ─socket─► Agent    │ WS      │                      │
+│  (Ghostty)     │         ├───────► │  Auth + Signaling    │
+│                PTY       │  SDP/   │  Session matching    │
+│                Capture   │  ICE    │  GitHub OAuth        │
 │                          │         │  SQLite              │
-└──────────────────────────┘         └──────┬───────────────┘
-                                            │
-                                     ┌──────▼───────────────┐
-                                     │  Web Client           │
-                                     │  (any browser)        │
-                                     │  • xterm.js           │
-                                     │  • Mobile UX          │
-                                     └──────────────────────┘
+│                  WebRTC  │         └──────┬───────────────┘
+│                  DataChannel              │         ▲
+│                     ║                     │    SDP/ICE only
+│                     ║                     ▼         ║
+│                     ╚═══════════════════════════════╝
+│                              P2P Direct
+└──────────────────────────┘
+         │                                     │
+         └──── WebRTC DataChannel (P2P) ──────┘
+                            │
+                     ┌──────▼───────────────┐
+                     │  Web Client           │
+                     │  (any browser)        │
+                     │  • xterm.js           │
+                     │  • Mobile UX          │
+                     └──────────────────────┘
 ```
 
-The agent connects outbound to the relay — no inbound ports needed on your Mac. The relay bridges agent and web client connections.
+The agent connects outbound to the relay — no inbound ports needed on your Mac. Terminal data flows **directly** between agent and browser via WebRTC P2P. The relay handles only authentication and signaling (SDP/ICE exchange). Falls back to relay-forwarded WebSocket if P2P fails.
 
 ### Local Mode
 
@@ -167,6 +175,8 @@ cmux-relay/
 ### Core
 
 - **Real-time streaming** — Terminal output via WebSocket + mkfifo PTY capture
+- **P2P data transfer** — WebRTC DataChannel for direct agent↔browser communication. Relay handles signaling only.
+- **Automatic fallback** — If P2P fails (NAT/firewall), falls back to relay-forwarded WebSocket seamlessly
 - **Bidirectional input** — Type commands from any device
 - **Split pane layout** — Pixel-perfect cmux pane positioning
 - **Multi-workspace** — Switch between all cmux workspaces
@@ -191,6 +201,7 @@ cmux-relay/
 ### Security
 
 - **End-to-end encryption** — Terminal input/output encrypted with AES-256-GCM. The relay server cannot read your terminal data.
+- **P2P encryption** — WebRTC DataChannel encrypted with DTLS. Even in P2P mode, data is encrypted in transit.
 - **ECDH key exchange** — Session keys established via P-256 ECDH during each connection. Keys are never transmitted in plaintext.
 - **GitHub OAuth** — Login with your GitHub account
 - **JWT sessions** — Cookie-based auth (30-day expiry)

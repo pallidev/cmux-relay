@@ -486,6 +486,7 @@ async function runCloudMode(savedAuth: AuthData | null) {
   const notificationPollInterval = setInterval(pollNotifications, 2000);
 
   const ptyCapture = new PtyCapture((chunk) => {
+    if (!relay.hasClients()) return;
     const data = chunk.toString('base64');
     broadcastViaRelay({ type: 'output', surfaceId: 'default', payload: { data } });
   });
@@ -504,6 +505,7 @@ async function runCloudMode(savedAuth: AuthData | null) {
     pollRunning = true;
     try {
       if (!cmux.isConnected()) return;
+      if (!relay.hasClients()) return;
       for (const [, surf] of store.getAllSurfaces()) {
         if (surf.type !== 'terminal') continue;
         const text = await cmux.readTerminalText(surf.id);

@@ -22,6 +22,7 @@ export class RelayConnection {
   private onClientDataCb: ClientDataHandler | null = null;
   private onClientConnectedCb: (() => void) | null = null;
   private onClientDisconnectedCb: (() => void) | null = null;
+  private clientCount = 0;
   private isConnecting = false;
   private intentionallyClosed = false;
   private onTokenCb: ((token: string) => void) | null = null;
@@ -107,9 +108,11 @@ export class RelayConnection {
           this.handleIncomingClientData(msg.payload);
         } else if (msg.type === 'client.connected') {
           console.log('[agent] Client connected via relay');
+          this.clientCount++;
           this.onClientConnectedCb?.();
         } else if (msg.type === 'client.disconnected') {
           console.log('[agent] Client disconnected from relay');
+          this.clientCount = Math.max(0, this.clientCount - 1);
           this.onClientDisconnectedCb?.();
         }
       });
@@ -245,9 +248,11 @@ export class RelayConnection {
         this.handleIncomingClientData(msg.payload);
       } else if (msg.type === 'client.connected') {
         console.log('[agent] Client connected via relay');
+        this.clientCount++;
         this.onClientConnectedCb?.();
       } else if (msg.type === 'client.disconnected') {
         console.log('[agent] Client disconnected from relay');
+        this.clientCount = Math.max(0, this.clientCount - 1);
         this.onClientDisconnectedCb?.();
       }
     });
@@ -267,6 +272,10 @@ export class RelayConnection {
 
   getSessionId(): string | null {
     return this.sessionId;
+  }
+
+  hasClients(): boolean {
+    return this.clientCount > 0;
   }
 
   disconnect(): void {
@@ -333,6 +342,7 @@ export class RelayConnection {
 
   private cleanup(): void {
     this.stopHeartbeat();
+    this.clientCount = 0;
     this.ws = null;
   }
 

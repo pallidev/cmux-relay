@@ -1,0 +1,41 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened? What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: How can we reproduce this?
+      placeholder: |
+        1. Run `npx cmux-relay-agent ...`
+        2. Open browser at ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Relevant environment details
+      placeholder: |
+        - OS: macOS 15.x
+        - Node.js: 20.x
+        - cmux version: x.x.x
+        - cmux-relay-agent version: x.x.x
+        - Mode: cloud / local / self-hosted
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant log output (sanitize any sensitive data)
+      render: shell

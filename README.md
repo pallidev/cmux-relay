@@ -6,9 +6,16 @@
 </p>
 
 <p align="center">
+  <a href="https://www.npmjs.com/package/cmux-relay-agent"><img src="https://img.shields.io/npm/v/cmux-relay-agent" alt="npm version" /></a>
+  <a href="https://www.npmjs.com/package/cmux-relay-agent"><img src="https://img.shields.io/npm/dt/cmux-relay-agent" alt="npm downloads" /></a>
   <a href="https://github.com/pallidev/cmux-relay/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License" /></a>
   <img src="https://img.shields.io/badge/platform-macOS-black?logo=apple" alt="Platform" />
   <img src="https://img.shields.io/badge/terminal-cmux-89b4fa" alt="cmux" />
+</p>
+
+<p align="center">
+  <b>Quick start:</b><br/>
+  <code>npx cmux-relay-agent</code>
 </p>
 
 <p align="center">

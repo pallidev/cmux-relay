@@ -1,6 +1,22 @@
 {
   "name": "@cmux-relay/shared",
   "version": "0.2.0",
+  "description": "Shared protocol types and message definitions for cmux-relay",
+  "keywords": [
+    "cmux",
+    "terminal",
+    "websocket",
+    "webrtc",
+    "protocol"
+  ],
+  "license": "MIT",
+  "author": "Jongin Kim",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pallidev/cmux-relay.git",
+    "directory": "packages/shared"
+  },
+  "homepage": "https://github.com/pallidev/cmux-relay#readme",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

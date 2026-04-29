@@ -104,6 +104,8 @@ export class WebRTCTransport {
   send(message: string): boolean {
     if (!this.dc || !this.isConnected) return false;
     try {
+      // Skip P2P if buffer is backed up (>1MB), fall back to relay
+      if (this.dc.bufferedAmount() > 1024 * 1024) return false;
       this.dc.sendMessage(message);
       return true;
     } catch {

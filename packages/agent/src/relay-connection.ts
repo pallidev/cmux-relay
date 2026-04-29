@@ -206,13 +206,18 @@ export class RelayConnection {
       } as RelayToClient;
     }
 
-    // Broadcast to all clients via relay (no targetClient)
-    // This avoids WebRTC DataChannel delivery issues on mobile Safari
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(encodeMessage({
-        type: 'agent.data',
-        payload: finalPayload,
-      }));
+    const data = JSON.stringify(finalPayload);
+
+    // Per-client delivery: try WebRTC P2P first, fallback to relay
+    for (const clientId of this.connectedClients) {
+      const webrtc = this.webrtcClients.get(clientId);
+      if (webrtc?.isActive()) {
+        if (!webrtc.send(data)) {
+          this.sendTargeted(clientId, finalPayload);
+        }
+      } else {
+        this.sendTargeted(clientId, finalPayload);
+      }
     }
   }
 

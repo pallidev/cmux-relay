@@ -1,13 +1,5 @@
 import * as nodeDataChannel from 'node-datachannel';
 
-const CHUNK_SIZE = 14_500; // Under Safari's 16KB SCTP limit (with JSON overhead)
-const BUFFER_LIMIT = 64 * 1024; // 64KB — Safari buffers aggressively much earlier than Chrome
-
-interface PendingChunks {
-  chunks: Map<number, string>;
-  total: number;
-}
-
 export class WebRTCTransport {
   private pc: nodeDataChannel.PeerConnection | null = null;
   private dc: nodeDataChannel.DataChannel | null = null;
@@ -16,7 +8,6 @@ export class WebRTCTransport {
   private onErrorCb: ((err: Error) => void) | null = null;
   private onIceCandidateCb: ((candidate: string, mid: string) => void) | null = null;
   private isConnected = false;
-  private recvChunks = new Map<string, PendingChunks>();
 
   createOffer(): { sdp: string } {
     this.pc = new nodeDataChannel.PeerConnection('cmux-relay', {
@@ -25,7 +16,6 @@ export class WebRTCTransport {
 
     this.setupPeerConnectionHandlers();
 
-    // node-datachannel defaults: ordered=true, maxRetransmits=unlimited (reliable)
     this.dc = this.pc.createDataChannel('terminal');
     this.setupDataChannelHandlers();
 
@@ -106,10 +96,7 @@ export class WebRTCTransport {
 
     this.dc.onMessage((msg) => {
       if (typeof msg === 'string') {
-        const reassembled = this.reassemble(msg);
-        if (reassembled !== null) {
-          this.onMessageCb?.(reassembled);
-        }
+        this.onMessageCb?.(msg);
       }
     });
   }
@@ -117,49 +104,13 @@ export class WebRTCTransport {
   send(message: string): boolean {
     if (!this.dc || !this.isConnected) return false;
     try {
-      // Skip P2P if buffer is backed up — Safari SCTP congestion starts early
-      if (this.dc.bufferedAmount() > BUFFER_LIMIT) return false;
-
-      if (message.length <= CHUNK_SIZE) {
-        this.dc.sendMessage(message);
-      } else {
-        const msgId = Math.random().toString(36).slice(2, 10);
-        const total = Math.ceil(message.length / CHUNK_SIZE);
-        for (let i = 0; i < total; i++) {
-          const d = message.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-          this.dc.sendMessage(JSON.stringify({ __chunk: true, id: msgId, n: total, i, d }));
-        }
-      }
+      // Skip P2P if buffer is backed up (>1MB), fall back to relay
+      if (this.dc.bufferedAmount() > 1024 * 1024) return false;
+      this.dc.sendMessage(message);
       return true;
     } catch {
       return false;
     }
-  }
-
-  private reassemble(msg: string): string | null {
-    try {
-      const parsed = JSON.parse(msg);
-      if (parsed.__chunk) {
-        const { id, n, i, d } = parsed;
-        if (!this.recvChunks.has(id)) {
-          this.recvChunks.set(id, { chunks: new Map(), total: n });
-        }
-        const pending = this.recvChunks.get(id)!;
-        pending.chunks.set(i, d);
-        if (pending.chunks.size === pending.total) {
-          let result = '';
-          for (let j = 0; j < pending.total; j++) {
-            result += pending.chunks.get(j)!;
-          }
-          this.recvChunks.delete(id);
-          return result;
-        }
-        return null;
-      }
-    } catch {
-      // Not a chunk envelope — pass through as regular message
-    }
-    return msg;
   }
 
   onMessage(handler: (msg: string) => void): void {
@@ -180,7 +131,6 @@ export class WebRTCTransport {
 
   close(): void {
     this.isConnected = false;
-    this.recvChunks.clear();
     this.dc?.close();
     this.pc?.close();
     this.dc = null;

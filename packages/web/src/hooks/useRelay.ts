@@ -12,20 +12,11 @@ interface UseRelayOptions {
   e2eEnabled?: boolean;
 }
 
-const CHUNK_SIZE = 14_500;
-const BUFFER_LIMIT = 64 * 1024;
-
-interface PendingChunks {
-  chunks: Map<number, string>;
-  total: number;
-}
-
 export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const e2eRef = useRef<ClientE2ECrypto | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dcRef = useRef<RTCDataChannel | null>(null);
-  const recvChunksRef = useRef(new Map<string, PendingChunks>());
   const [status, setStatus] = useState<RelayStatus>('disconnected');
   const [transport, setTransport] = useState<TransportType>('relay');
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([]);
@@ -107,47 +98,10 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
     }
   };
 
-  const reassemble = (raw: string): string | null => {
-    try {
-      const parsed = JSON.parse(raw);
-      if (parsed.__chunk) {
-        const { id, n, i, d } = parsed;
-        if (!recvChunksRef.current.has(id)) {
-          recvChunksRef.current.set(id, { chunks: new Map(), total: n });
-        }
-        const pending = recvChunksRef.current.get(id)!;
-        pending.chunks.set(i, d);
-        if (pending.chunks.size === pending.total) {
-          let result = '';
-          for (let j = 0; j < pending.total; j++) {
-            result += pending.chunks.get(j)!;
-          }
-          recvChunksRef.current.delete(id);
-          return result;
-        }
-        return null;
-      }
-    } catch {}
-    return raw;
-  };
-
   const sendViaTransport = useCallback((data: string) => {
-    const dc = dcRef.current;
-    if (dc && dc.readyState === 'open') {
-      if (dc.bufferedAmount > BUFFER_LIMIT) {
-        wsRef.current?.send(data);
-        return;
-      }
-      if (data.length <= CHUNK_SIZE) {
-        dc.send(data);
-      } else {
-        const msgId = Math.random().toString(36).slice(2, 10);
-        const total = Math.ceil(data.length / CHUNK_SIZE);
-        for (let i = 0; i < total; i++) {
-          const d = data.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-          dc.send(JSON.stringify({ __chunk: true, id: msgId, n: total, i, d }));
-        }
-      }
+    // Prefer WebRTC DataChannel when available
+    if (dcRef.current && dcRef.current.readyState === 'open') {
+      dcRef.current.send(data);
       return;
     }
     wsRef.current?.send(data);
@@ -207,15 +161,12 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
 
         dc.onmessage = (event) => {
           try {
-            const raw = event.data as string;
-            const msgStr = reassemble(raw);
-            if (msgStr === null) return; // incomplete chunk
-            const msg = JSON.parse(msgStr);
+            const msg = JSON.parse(event.data as string);
             if (msg.type === 'e2e.ack') {
               e2eRef.current?.handleE2EAck(msg).then(() => {
                 setE2eReady(true);
                 if (activeSurfaceIdRef.current) {
-                  sendViaTransport(JSON.stringify({ type: 'surface.select', surfaceId: activeSurfaceIdRef.current }));
+                  dcRef.current?.send(JSON.stringify({ type: 'surface.select', surfaceId: activeSurfaceIdRef.current }));
                 }
               }).catch((err: Error) => {
                 console.error('[e2e] Handshake failed:', err);
@@ -256,7 +207,6 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
         pcRef.current.close();
         pcRef.current = null;
       }
-      recvChunksRef.current.clear();
       setTransport('relay');
     };
 
@@ -314,6 +264,7 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
           try {
             await e2eRef.current?.handleE2EAck(msg);
             setE2eReady(true);
+            // Re-select active surface to get fresh (decryptable) terminal output
             if (activeSurfaceIdRef.current) {
               sendViaTransport(JSON.stringify({ type: 'surface.select', surfaceId: activeSurfaceIdRef.current }));
             }

@@ -1,6 +1,6 @@
 {
-  "name": "cmux-relay",
-  "short_name": "cmux-relay",
+  "name": "CmuxRelay",
+  "short_name": "CmuxRelay",
   "description": "Monitor and control cmux terminals from mobile",
   "start_url": "/",
   "display": "standalone",

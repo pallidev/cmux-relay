@@ -20,8 +20,11 @@ interface TerminalProps {
   onResize: (cols: number, rows: number) => void;
 }
 
+const STRIP_ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]/g;
+
 export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const onInputRef = useRef(onInput);
@@ -101,6 +104,23 @@ export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: 
     let hasWritten = false;
     let previousText = '';
 
+    const updateTrailingOffset = (text: string) => {
+      if (!fitRows || !wrapperRef.current || !containerRef.current || !termRef.current) return;
+      const lines = text.split('\n');
+      let trailing = 0;
+      for (let i = lines.length - 1; i >= 0; i--) {
+        if (lines[i].replace(STRIP_ANSI_RE, '').trim() === '') trailing++;
+        else break;
+      }
+      trailing = Math.min(trailing, lines.length - 1);
+      if (trailing > 0) {
+        const rowHeight = containerRef.current.offsetHeight / termRef.current.rows;
+        wrapperRef.current.style.marginBottom = `-${trailing * rowHeight}px`;
+      } else {
+        wrapperRef.current.style.marginBottom = '0px';
+      }
+    };
+
     const writeOutput = (base64Data: string) => {
       if (!termRef.current) return;
       if (base64Data === lastB64) return;
@@ -117,6 +137,7 @@ export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: 
         previousText = text;
         t.write(text);
         t.scrollToBottom();
+        updateTrailingOffset(text);
         return;
       }
 
@@ -136,6 +157,7 @@ export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: 
       if (isAtBottomRef.current) {
         t.scrollToBottom();
       }
+      updateTrailingOffset(text);
     };
     terminalRegistry.set(surfaceId, writeOutput);
 
@@ -297,29 +319,29 @@ export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: 
   };
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%' }}>
       <div
-        ref={containerRef}
-        style={{
-          width: cols ? `${cols * 7.8}px` : '100%',
-          minWidth: '100%',
-          height: fitRows ? 'calc(100% - 78px)' : '100%',
-          backgroundColor: '#1e1e2e',
-          overflow: 'hidden',
-          touchAction: 'pan-y',
-        }}
-      />
+        ref={wrapperRef}
+        style={fitRows ? { flex: '1 1 0', minHeight: 0, overflow: 'hidden' } : { height: '100%' }}
+      >
+        <div
+          ref={containerRef}
+          style={{
+            width: cols ? `${cols * 7.8}px` : '100%',
+            minWidth: '100%',
+            height: '100%',
+            backgroundColor: '#1e1e2e',
+            overflow: 'hidden',
+            touchAction: 'pan-y',
+          }}
+        />
+      </div>
       {/* Mobile input bar for IME support + control keys */}
       {fitRows && (
         <div style={{
-          position: 'absolute',
-          bottom: 0,
-          left: 0,
-          right: 0,
+          flexShrink: 0,
           background: '#181825',
           borderTop: '1px solid #313244',
-          zIndex: 10,
-          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
         }}>
           {/* Control keys row */}
           {ctrlActive ? (

@@ -38,7 +38,7 @@ self.addEventListener('activate', () => {
 
 self.addEventListener('push', (event) => {
   const data = event.data ? event.data.json() : {};
-  const title = data.title || 'cmux-relay';
+  const title = data.title || 'CmuxRelay';
   const options = {
     body: data.body || '',
     data: {

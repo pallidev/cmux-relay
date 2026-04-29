@@ -194,6 +194,25 @@ html, body, #root {
   background: var(--red);
 }
 
+.transport-badge {
+  font-size: 0.6rem;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.transport-badge.p2p {
+  background: rgba(166, 227, 161, 0.15);
+  color: var(--green);
+}
+
+.transport-badge.relay {
+  background: rgba(137, 180, 250, 0.15);
+  color: var(--blue);
+}
+
 .header-title {
   font-size: 0.85rem;
   color: var(--text);
@@ -789,7 +808,6 @@ html, body, #root {
   flex: 1;
   overflow: hidden;
   -webkit-overflow-scrolling: touch;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
   min-height: 0;
 }
 

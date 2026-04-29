@@ -75,7 +75,6 @@ export function createWSServer(
 
     wss.on('connection', (ws) => {
       const clientId = randomUUID();
-      deps.store.disconnectAllClients();
       deps.store.registerClient(clientId, ws);
       console.log(`Client connected: ${clientId}`);
 

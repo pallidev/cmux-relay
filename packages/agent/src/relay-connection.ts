@@ -3,6 +3,7 @@ import { encodeMessage, decodeMessage } from '@cmux-relay/shared';
 import type { AgentOutgoing, RelayToAgent, ClientOutgoing, RelayToClient, EncryptedPayload } from '@cmux-relay/shared';
 import { execFileSync } from 'node:child_process';
 import type { AgentE2ECrypto } from './e2e-crypto.js';
+import { WebRTCTransport } from './webrtc-transport.js';
 
 type ClientDataHandler = (msg: ClientOutgoing) => void;
 
@@ -27,6 +28,8 @@ export class RelayConnection {
   private intentionallyClosed = false;
   private onTokenCb: ((token: string) => void) | null = null;
   private e2e: AgentE2ECrypto | null;
+  private connectedClients = new Set<string>();
+  private webrtcClients = new Map<string, WebRTCTransport>();
 
   constructor(relayUrl: string, apiToken?: string, e2e?: AgentE2ECrypto) {
     this.relayUrl = relayUrl;
@@ -105,14 +108,18 @@ export class RelayConnection {
           this.isConnecting = false;
           reject(new Error(msg.reason));
         } else if (msg.type === 'client.data') {
-          this.handleIncomingClientData(msg.payload);
+          this.handleIncomingClientData(msg.payload, msg.clientId);
         } else if (msg.type === 'client.connected') {
-          console.log('[agent] Client connected via relay');
+          console.log(`[agent] Client connected via relay (${msg.clientId})`);
           this.clientCount++;
+          this.connectedClients.add(msg.clientId);
+          this.initWebRTC(msg.clientId);
           this.onClientConnectedCb?.();
         } else if (msg.type === 'client.disconnected') {
-          console.log('[agent] Client disconnected from relay');
+          console.log(`[agent] Client disconnected from relay (${msg.clientId})`);
           this.clientCount = Math.max(0, this.clientCount - 1);
+          this.connectedClients.delete(msg.clientId);
+          this.cleanupWebRTC(msg.clientId);
           this.onClientDisconnectedCb?.();
         }
       });
@@ -122,12 +129,10 @@ export class RelayConnection {
         clearTimeout(this.connectTimeoutTimer!);
         this.connectTimeoutTimer = null;
         if (settled) {
-          // Connection was established, now lost
           console.log(`[agent] Relay connection closed: ${code} ${reason}`);
           this.cleanup();
           this.scheduleReconnect();
         }
-        // If not settled, error handler already took care of it
       });
 
       ws.on('error', (err) => {
@@ -144,12 +149,23 @@ export class RelayConnection {
     });
   }
 
-  private async handleIncomingClientData(msg: ClientOutgoing): Promise<void> {
+  private async handleIncomingClientData(msg: ClientOutgoing, clientId: string): Promise<void> {
+    if (msg.type === 'webrtc.answer') {
+      console.log(`[agent] WebRTC answer received from ${clientId}`);
+      this.webrtcClients.get(clientId)?.handleAnswer(msg.sdp);
+      return;
+    }
+
+    if (msg.type === 'webrtc.ice-candidate') {
+      this.webrtcClients.get(clientId)?.addIceCandidate(msg.candidate, msg.mid);
+      return;
+    }
+
     if (msg.type === 'e2e.init') {
       if (!this.e2e?.hasKeys()) return;
       try {
         const ack = await this.e2e.handleE2EInit(msg.publicKey);
-        this.sendRaw(ack);
+        this.sendTargeted(clientId, ack);
       } catch (err) {
         console.error('[agent] E2E handshake failed:', err);
       }
@@ -179,24 +195,34 @@ export class RelayConnection {
   }
 
   async send(payload: RelayToClient): Promise<void> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-
+    // Encrypt once if E2E is active
+    let finalPayload = payload;
     if (payload.type === 'output' && this.e2e?.isReady()) {
       const encryptedPayload = await this.e2e.encryptOutput(payload.payload.data);
-      this.sendRaw({
+      finalPayload = {
         type: 'output',
         surfaceId: payload.surfaceId,
         payload: encryptedPayload,
-      } as RelayToClient);
-      return;
+      } as RelayToClient;
     }
 
-    this.sendRaw(payload);
+    // Broadcast to all clients via relay (no targetClient)
+    // This avoids WebRTC DataChannel delivery issues on mobile Safari
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(encodeMessage({
+        type: 'agent.data',
+        payload: finalPayload,
+      }));
+    }
   }
 
-  private sendRaw(payload: RelayToClient): void {
+  private sendTargeted(clientId: string, payload: RelayToClient): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(encodeMessage({ type: 'agent.data', payload }));
+      this.ws.send(encodeMessage({
+        type: 'agent.data',
+        payload,
+        targetClient: clientId,
+      }));
     }
   }
 
@@ -245,14 +271,18 @@ export class RelayConnection {
       const msg = decodeMessage<RelayToAgent>(data);
 
       if (msg.type === 'client.data') {
-        this.handleIncomingClientData(msg.payload);
+        this.handleIncomingClientData(msg.payload, msg.clientId);
       } else if (msg.type === 'client.connected') {
-        console.log('[agent] Client connected via relay');
+        console.log(`[agent] Client connected via relay (${msg.clientId})`);
         this.clientCount++;
+        this.connectedClients.add(msg.clientId);
+        this.initWebRTC(msg.clientId);
         this.onClientConnectedCb?.();
       } else if (msg.type === 'client.disconnected') {
-        console.log('[agent] Client disconnected from relay');
+        console.log(`[agent] Client disconnected from relay (${msg.clientId})`);
         this.clientCount = Math.max(0, this.clientCount - 1);
+        this.connectedClients.delete(msg.clientId);
+        this.cleanupWebRTC(msg.clientId);
         this.onClientDisconnectedCb?.();
       }
     });
@@ -282,6 +312,7 @@ export class RelayConnection {
     this.intentionallyClosed = true;
     this.stopHeartbeat();
     this.clearPongTimeout();
+    this.cleanupAllWebRTC();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -311,7 +342,6 @@ export class RelayConnection {
       }
     }, HEARTBEAT_INTERVAL);
 
-    // Listen for pong on current ws
     if (this.ws) {
       this.ws.on('pong', () => {
         this.clearPongTimeout();
@@ -344,6 +374,58 @@ export class RelayConnection {
     this.stopHeartbeat();
     this.clientCount = 0;
     this.ws = null;
+    this.cleanupAllWebRTC();
+  }
+
+  private initWebRTC(clientId: string): void {
+    this.cleanupWebRTC(clientId);
+
+    try {
+      const transport = new WebRTCTransport();
+
+      transport.onMessage((msg) => {
+        try {
+          const clientMsg = JSON.parse(msg) as ClientOutgoing;
+          this.handleIncomingClientData(clientMsg, clientId);
+        } catch (err) {
+          console.error('[agent] WebRTC message parse error:', err);
+        }
+      });
+
+      transport.onError((err) => {
+        console.warn(`[agent] WebRTC failed for ${clientId}: ${err.message} — using relay fallback`);
+        this.cleanupWebRTC(clientId);
+      });
+
+      transport.onIceCandidate((candidate, mid) => {
+        this.sendTargeted(clientId, { type: 'webrtc.ice-candidate', candidate, mid } as RelayToClient);
+      });
+
+      this.webrtcClients.set(clientId, transport);
+
+      const { sdp } = transport.createOffer();
+      this.sendTargeted(clientId, { type: 'webrtc.offer', sdp } as RelayToClient);
+
+      console.log(`[agent] WebRTC offer sent to ${clientId}`);
+    } catch (err) {
+      console.warn(`[agent] WebRTC init failed for ${clientId}:`, err);
+    }
+  }
+
+  private cleanupWebRTC(clientId: string): void {
+    const transport = this.webrtcClients.get(clientId);
+    if (transport) {
+      transport.close();
+      this.webrtcClients.delete(clientId);
+    }
+  }
+
+  private cleanupAllWebRTC(): void {
+    for (const transport of this.webrtcClients.values()) {
+      transport.close();
+    }
+    this.webrtcClients.clear();
+    this.connectedClients.clear();
   }
 
   private reconnectDelay = 3000;

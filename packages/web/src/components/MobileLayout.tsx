@@ -60,7 +60,7 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
     sendResize,
     onOutput,
     onNotifications,
-  } = useRelay(relayUrl ? { url: relayUrl } : { url: '' });
+  } = useRelay(relayUrl ? { url: relayUrl, e2eEnabled: true } : { url: '' });
 
   const [toasts, setToasts] = useState<CmuxNotification[]>([]);
   const prevNotifCount = useRef(0);

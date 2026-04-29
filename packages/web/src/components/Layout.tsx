@@ -34,6 +34,7 @@ export function Layout() {
 
   const {
     status,
+    transport,
     workspaces,
     surfaces,
     panes,
@@ -248,6 +249,7 @@ export function Layout() {
           <span className="status">
             <span className={`status-dot ${status}`} />
           </span>
+          <span className={`transport-badge ${transport}`}>{transport === 'p2p' ? 'P2P' : 'Relay'}</span>
           <span className="header-title">
             {workspaces.find(w => w.id === selectedWorkspaceId)?.title || 'cmux-relay'}
           </span>

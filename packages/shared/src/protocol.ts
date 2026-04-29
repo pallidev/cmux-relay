@@ -34,13 +34,26 @@ export interface ResizeMessage {
   payload: { cols: number; rows: number };
 }
 
+export interface WebRTCAnswerMessage {
+  type: 'webrtc.answer';
+  sdp: string;
+}
+
+export interface WebRTCIceCandidateMessage {
+  type: 'webrtc.ice-candidate';
+  candidate: string;
+  mid: string;
+}
+
 export type ClientOutgoing =
   | AuthMessage
   | WorkspacesListMessage
   | SurfaceSelectMessage
   | InputMessage
   | ResizeMessage
-  | E2EInitMessage;
+  | E2EInitMessage
+  | WebRTCAnswerMessage
+  | WebRTCIceCandidateMessage;
 
 // ─── Server → Client ───
 
@@ -95,6 +108,22 @@ export interface E2EAckMessage {
   iv: string;
 }
 
+export interface WebRTCOfferMessage {
+  type: 'webrtc.offer';
+  sdp: string;
+}
+
+export interface WebRTCAnswerToClientMessage {
+  type: 'webrtc.answer';
+  sdp: string;
+}
+
+export interface WebRTCIceCandidateToClientMessage {
+  type: 'webrtc.ice-candidate';
+  candidate: string;
+  mid: string;
+}
+
 export type RelayToClient =
   | RelayOutputMessage
   | RelayWorkspacesMessage
@@ -103,7 +132,10 @@ export type RelayToClient =
   | RelayPanesMessage
   | RelayNotificationsMessage
   | RelayErrorMessage
-  | E2EAckMessage;
+  | E2EAckMessage
+  | WebRTCOfferMessage
+  | WebRTCAnswerToClientMessage
+  | WebRTCIceCandidateToClientMessage;
 
 // ─── Agent → Relay ───
 
@@ -114,6 +146,7 @@ export interface AgentRegisterMessage {
 export interface AgentDataMessage {
   type: 'agent.data';
   payload: RelayToClient;
+  targetClient?: string;
 }
 
 export interface AgentHeartbeatMessage {
@@ -139,15 +172,18 @@ export interface SessionCreatedMessage {
 
 export interface ClientConnectedMessage {
   type: 'client.connected';
+  clientId: string;
 }
 
 export interface ClientDisconnectedMessage {
   type: 'client.disconnected';
+  clientId: string;
 }
 
 export interface ClientDataMessage {
   type: 'client.data';
   payload: ClientOutgoing;
+  clientId: string;
 }
 
 export interface PairingWaitMessage {

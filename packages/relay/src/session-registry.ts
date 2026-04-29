@@ -8,6 +8,7 @@ import { sendPushToUser } from './push-sender.js';
 
 interface ClientInfo {
   ws: WebSocket;
+  clientId: string;
   ip: string;
   userAgent: string;
 }
@@ -56,11 +57,12 @@ export class SessionRegistry {
     const ip = req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim()
       || req.socket.remoteAddress || 'unknown';
     const userAgent = req.headers['user-agent'] || 'unknown';
+    const clientId = randomBytes(4).toString('hex');
 
-    session.clients.push({ ws, ip, userAgent });
+    session.clients.push({ ws, clientId, ip, userAgent });
     this.clientMap.set(ws, sessionId);
-    session.agentWs.send(encodeMessage({ type: 'client.connected' }));
-    console.log(`[relay] Client connected to session=${sessionId} ip=${ip}`);
+    session.agentWs.send(encodeMessage({ type: 'client.connected', clientId }));
+    console.log(`[relay] Client connected to session=${sessionId} client=${clientId} ip=${ip}`);
     return true;
   }
 
@@ -71,9 +73,10 @@ export class SessionRegistry {
     const session = this.sessions.get(sessionId);
     if (session) {
       const idx = session.clients.findIndex(c => c.ws === ws);
+      const clientId = idx >= 0 ? session.clients[idx].clientId : 'unknown';
       if (idx >= 0) session.clients.splice(idx, 1);
       if (session.agentWs.readyState === WebSocket.OPEN) {
-        session.agentWs.send(encodeMessage({ type: 'client.disconnected' }));
+        session.agentWs.send(encodeMessage({ type: 'client.disconnected', clientId }));
       }
     }
     this.clientMap.delete(ws);
@@ -106,25 +109,33 @@ export class SessionRegistry {
 
     if (msg.type === 'agent.data') {
       const payload = JSON.stringify(msg.payload);
-      const clientCount = session.clients.filter(c => c.ws.readyState === WebSocket.OPEN).length;
-      console.log(`[relay] Forwarding ${(msg.payload as any).type} to ${clientCount} clients (session=${sessionId})`);
-      for (const client of session.clients) {
-        if (client.ws.readyState === WebSocket.OPEN) {
+
+      if (msg.targetClient) {
+        const client = session.clients.find(c => c.clientId === msg.targetClient && c.ws.readyState === WebSocket.OPEN);
+        if (client) {
           client.ws.send(payload);
         }
-      }
+      } else {
+        const clientCount = session.clients.filter(c => c.ws.readyState === WebSocket.OPEN).length;
+        console.log(`[relay] Forwarding ${(msg.payload as any).type} to ${clientCount} clients (session=${sessionId})`);
+        for (const client of session.clients) {
+          if (client.ws.readyState === WebSocket.OPEN) {
+            client.ws.send(payload);
+          }
+        }
 
-      // Send push notifications when no clients are connected
-      if (clientCount === 0 && this.db && (msg.payload as any).type === 'notifications') {
-        const notifs = (msg.payload as any).payload?.notifications as Array<{ title: string; subtitle: string; body: string; workspaceId?: string; surfaceId?: string }>;
-        if (notifs && notifs.length > 0) {
-          for (const n of notifs) {
-            sendPushToUser(this.db, session.userId, {
-              title: n.title,
-              body: n.subtitle ? `${n.subtitle}: ${n.body}` : n.body,
-              workspaceId: n.workspaceId,
-              surfaceId: n.surfaceId,
-            });
+        // Send push notifications when no clients are connected
+        if (clientCount === 0 && this.db && (msg.payload as any).type === 'notifications') {
+          const notifs = (msg.payload as any).payload?.notifications as Array<{ title: string; subtitle: string; body: string; workspaceId?: string; surfaceId?: string }>;
+          if (notifs && notifs.length > 0) {
+            for (const n of notifs) {
+              sendPushToUser(this.db, session.userId, {
+                title: n.title,
+                body: n.subtitle ? `${n.subtitle}: ${n.body}` : n.body,
+                workspaceId: n.workspaceId,
+                surfaceId: n.surfaceId,
+              });
+            }
           }
         }
       }
@@ -140,8 +151,11 @@ export class SessionRegistry {
     const session = this.sessions.get(sessionId);
     if (!session) return;
 
+    const client = session.clients.find(c => c.ws === ws);
+    if (!client) return;
+
     const clientMsg = decodeMessage<ClientOutgoing>(rawData);
-    const relayMsg: RelayToAgent = { type: 'client.data', payload: clientMsg };
+    const relayMsg: RelayToAgent = { type: 'client.data', payload: clientMsg, clientId: client.clientId };
     if (session.agentWs.readyState === WebSocket.OPEN) {
       session.agentWs.send(encodeMessage(relayMsg));
     }

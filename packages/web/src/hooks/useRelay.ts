@@ -311,6 +311,7 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
 
     const forceReconnect = () => {
       clearTimeout(reconnectTimer);
+      if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
       const oldWs = wsRef.current;
       wsRef.current = null;
       if (oldWs) {
@@ -328,12 +329,13 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
     const onVisible = () => {
       if (document.visibilityState === 'visible' && !disposed) {
         const wasHidden = hiddenAt > 0 && (Date.now() - hiddenAt) > 3_000;
-        if (wasHidden || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        const wsOk = wsRef.current && wsRef.current.readyState === WebSocket.OPEN;
+        if (wasHidden || !wsOk) {
           forceReconnect();
-        } else if (wsRef.current?.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({ type: 'workspaces.list' }));
+        } else if (wsOk) {
+          wsRef.current!.send(JSON.stringify({ type: 'workspaces.list' }));
           if (activeSurfaceIdRef.current) {
-            wsRef.current.send(JSON.stringify({ type: 'surface.select', surfaceId: activeSurfaceIdRef.current }));
+            wsRef.current!.send(JSON.stringify({ type: 'surface.select', surfaceId: activeSurfaceIdRef.current }));
           }
         }
       } else if (document.visibilityState === 'hidden') {

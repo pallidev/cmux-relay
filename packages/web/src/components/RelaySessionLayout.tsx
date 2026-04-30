@@ -71,6 +71,7 @@ function RelaySessionInner({ wsUrl, onDisconnect }: { wsUrl: string; onDisconnec
   // Browser notification + push subscription
   const pendingBrowserNotifs = useRef<CmuxNotification[]>([]);
   const pushInitialized = useRef(false);
+  const swRegRef = useRef<ServiceWorkerRegistration | null>(null);
 
   useEffect(() => {
     if (status !== 'connected' || pushInitialized.current) return;
@@ -80,10 +81,23 @@ function RelaySessionInner({ wsUrl, onDisconnect }: { wsUrl: string; onDisconnec
       Notification.requestPermission().then(async (p) => {
         if (p === 'granted') {
           const reg = await registerServiceWorker();
-          if (reg) await subscribePush(reg);
+          if (reg) {
+            swRegRef.current = reg;
+            await subscribePush(reg);
+          }
           if (pendingBrowserNotifs.current.length > 0) {
             for (const n of pendingBrowserNotifs.current) {
-              new Notification(n.title, { body: n.subtitle ? `${n.subtitle}: ${n.body}` : n.body, tag: n.id });
+              if (swRegRef.current) {
+                swRegRef.current.showNotification(n.title, {
+                  body: n.subtitle ? `${n.subtitle}: ${n.body}` : n.body,
+                  tag: n.id,
+                  data: { workspaceId: n.workspaceId || null, surfaceId: n.surfaceId || null },
+                  icon: '/icon-192.png',
+                  badge: '/icon-192.png',
+                });
+              } else {
+                new Notification(n.title, { body: n.subtitle ? `${n.subtitle}: ${n.body}` : n.body, tag: n.id });
+              }
             }
             pendingBrowserNotifs.current = [];
           }
@@ -91,7 +105,10 @@ function RelaySessionInner({ wsUrl, onDisconnect }: { wsUrl: string; onDisconnec
       });
     } else if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
       registerServiceWorker().then((reg) => {
-        if (reg) subscribePush(reg);
+        if (reg) {
+          swRegRef.current = reg;
+          subscribePush(reg);
+        }
       });
     }
   }, [status]);
@@ -122,7 +139,18 @@ function RelaySessionInner({ wsUrl, onDisconnect }: { wsUrl: string; onDisconnec
   onNotifications(useCallback((newNotifs: CmuxNotification[]) => {
     for (const n of newNotifs) {
       if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification(n.title, { body: n.subtitle ? `${n.subtitle}: ${n.body}` : n.body, tag: n.id });
+        const reg = swRegRef.current;
+        if (reg) {
+          reg.showNotification(n.title, {
+            body: n.subtitle ? `${n.subtitle}: ${n.body}` : n.body,
+            tag: n.id,
+            data: { workspaceId: n.workspaceId || null, surfaceId: n.surfaceId || null },
+            icon: '/icon-192.png',
+            badge: '/icon-192.png',
+          });
+        } else {
+          new Notification(n.title, { body: n.subtitle ? `${n.subtitle}: ${n.body}` : n.body, tag: n.id });
+        }
       } else {
         pendingBrowserNotifs.current.push(n);
       }

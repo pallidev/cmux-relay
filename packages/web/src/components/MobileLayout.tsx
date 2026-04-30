@@ -68,6 +68,7 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
   const userSelectedRef = useRef(false);
   const activeSurfaceIdRef = useRef<string | null>(null);
   const pendingBrowserNotifs = useRef<CmuxNotification[]>([]);
+  const swRegRef = useRef<ServiceWorkerRegistration | null>(null);
 
   // Notify parent only if still disconnected after a grace period (auto-reconnect handles it)
   const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -103,7 +104,10 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
     // Auto-subscribe if already granted (no user gesture needed)
     if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
       registerServiceWorker().then((reg) => {
-        if (reg) subscribePush(reg);
+        if (reg) {
+          swRegRef.current = reg;
+          subscribePush(reg);
+        }
       });
     }
   }, [status]);
@@ -114,10 +118,23 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
     setNotifPermission(p);
     if (p === 'granted') {
       const reg = await registerServiceWorker();
-      if (reg) await subscribePush(reg);
+      if (reg) {
+        swRegRef.current = reg;
+        await subscribePush(reg);
+      }
       if (pendingBrowserNotifs.current.length > 0) {
         for (const n of pendingBrowserNotifs.current) {
-          new Notification(n.title, { body: n.subtitle ? `${n.subtitle}: ${n.body}` : n.body, tag: n.id });
+          if (swRegRef.current) {
+            swRegRef.current.showNotification(n.title, {
+              body: n.subtitle ? `${n.subtitle}: ${n.body}` : n.body,
+              tag: n.id,
+              data: { workspaceId: n.workspaceId || null, surfaceId: n.surfaceId || null },
+              icon: '/icon-192.png',
+              badge: '/icon-192.png',
+            });
+          } else {
+            new Notification(n.title, { body: n.subtitle ? `${n.subtitle}: ${n.body}` : n.body, tag: n.id });
+          }
         }
         pendingBrowserNotifs.current = [];
       }
@@ -150,7 +167,18 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
   onNotifications(useCallback((newNotifs: CmuxNotification[]) => {
     for (const n of newNotifs) {
       if ('Notification' in window && Notification.permission === 'granted') {
-        new Notification(n.title, { body: n.subtitle ? `${n.subtitle}: ${n.body}` : n.body, tag: n.id });
+        const reg = swRegRef.current;
+        if (reg) {
+          reg.showNotification(n.title, {
+            body: n.subtitle ? `${n.subtitle}: ${n.body}` : n.body,
+            tag: n.id,
+            data: { workspaceId: n.workspaceId || null, surfaceId: n.surfaceId || null },
+            icon: '/icon-192.png',
+            badge: '/icon-192.png',
+          });
+        } else {
+          new Notification(n.title, { body: n.subtitle ? `${n.subtitle}: ${n.body}` : n.body, tag: n.id });
+        }
       } else {
         pendingBrowserNotifs.current.push(n);
       }

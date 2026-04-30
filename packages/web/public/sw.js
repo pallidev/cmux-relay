@@ -72,7 +72,7 @@ self.addEventListener('notificationclick', (event) => {
       if (workspaceId) {
         await savePendingNavigation({ workspaceId, surfaceId });
       }
-      return self.clients.openWindow('/');
+      return self.clients.openWindow('/terminal');
     })(),
   );
 });

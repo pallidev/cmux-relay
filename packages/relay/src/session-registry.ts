@@ -124,8 +124,8 @@ export class SessionRegistry {
           }
         }
 
-        // Send push notifications when no clients are connected
-        if (clientCount === 0 && this.db && (msg.payload as any).type === 'notifications') {
+        // Send push notifications for notifications (always, for mobile PWA background delivery)
+        if (this.db && (msg.payload as any).type === 'notifications') {
           const notifs = (msg.payload as any).payload?.notifications as Array<{ title: string; subtitle: string; body: string; workspaceId?: string; surfaceId?: string }>;
           if (notifs && notifs.length > 0) {
             for (const n of notifs) {

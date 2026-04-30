@@ -162,6 +162,10 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
         dc.onmessage = (event) => {
           try {
             const msg = JSON.parse(event.data as string);
+            if (msg.type === 'webrtc.ping') {
+              dc.send('{"type":"webrtc.pong"}');
+              return;
+            }
             if (msg.type === 'e2e.ack') {
               e2eRef.current?.handleE2EAck(msg).then(() => {
                 setE2eReady(true);

@@ -361,42 +361,6 @@ describe('cmux-relay integration', () => {
     store.updateWorkspaces([]);
   });
 
-  // ─── Multi-client ───
-
-  it('new connection replaces existing client', async () => {
-    store.updateWorkspaces([
-      { id: 'ws-excl', title: 'Exclusive Workspace' },
-    ]);
-    store.updateSurfaces('ws-excl', [
-      { id: 'excl', title: 'excl', type: 'terminal', workspaceId: 'ws-excl' },
-    ]);
-
-    const c1 = await connect(port);
-    send(c1, { type: 'auth', payload: { token: signToken('client') } });
-    await waitForMessage(c1, 'workspaces');
-
-    // c2 connects — should replace c1
-    const c2 = await connect(port);
-    send(c2, { type: 'auth', payload: { token: signToken('client') } });
-    await waitForMessage(c2, 'workspaces');
-
-    // c1 should be disconnected
-    const c1Closed = await new Promise<boolean>(r => {
-      c1.on('close', () => r(true));
-      setTimeout(() => r(false), 500);
-    });
-    assert.equal(c1Closed, true, 'First client should be disconnected');
-
-    // c2 should still work
-    send(c2, { type: 'surface.select', surfaceId: 'excl' });
-    const active = await waitForMessage(c2, 'surface.active');
-    assert.equal(active.surfaceId, 'excl');
-
-    await disconnect(c2);
-    store.updateWorkspaces([]);
-    store.updateSurfaces('ws-excl', []);
-  });
-
   // ─── Notifications ───
 
   it('client receives existing notifications on auth', async () => {

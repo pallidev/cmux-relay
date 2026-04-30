@@ -1,5 +1,8 @@
 import * as nodeDataChannel from 'node-datachannel';
 
+const PING_INTERVAL = 30_000;
+const PING_TIMEOUT = 10_000;
+
 export class WebRTCTransport {
   private pc: nodeDataChannel.PeerConnection | null = null;
   private dc: nodeDataChannel.DataChannel | null = null;
@@ -8,6 +11,15 @@ export class WebRTCTransport {
   private onErrorCb: ((err: Error) => void) | null = null;
   private onIceCandidateCb: ((candidate: string, mid: string) => void) | null = null;
   private isConnected = false;
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private pongTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly pingInterval: number;
+  private readonly pingTimeout: number;
+
+  constructor(opts?: { pingInterval?: number; pingTimeout?: number }) {
+    this.pingInterval = opts?.pingInterval ?? PING_INTERVAL;
+    this.pingTimeout = opts?.pingTimeout ?? PING_TIMEOUT;
+  }
 
   createOffer(): { sdp: string } {
     this.pc = new nodeDataChannel.PeerConnection('cmux-relay', {
@@ -79,6 +91,7 @@ export class WebRTCTransport {
     this.dc.onOpen(() => {
       console.log('[webrtc] DataChannel open');
       this.isConnected = true;
+      this.startKeepalive();
       this.onOpenCb?.();
     });
 
@@ -96,6 +109,13 @@ export class WebRTCTransport {
 
     this.dc.onMessage((msg) => {
       if (typeof msg === 'string') {
+        try {
+          const parsed = JSON.parse(msg);
+          if (parsed.type === 'webrtc.pong') {
+            this.clearPongTimeout();
+            return;
+          }
+        } catch { /* not JSON, pass through */ }
         this.onMessageCb?.(msg);
       }
     });
@@ -131,6 +151,7 @@ export class WebRTCTransport {
 
   close(): void {
     this.isConnected = false;
+    this.stopKeepalive();
     this.dc?.close();
     this.pc?.close();
     this.dc = null;
@@ -139,5 +160,39 @@ export class WebRTCTransport {
     this.onOpenCb = null;
     this.onErrorCb = null;
     this.onIceCandidateCb = null;
+  }
+
+  private startKeepalive(): void {
+    this.stopKeepalive();
+    this.pingTimer = setInterval(() => {
+      if (!this.dc || !this.isConnected) return;
+      try {
+        this.dc.sendMessage('{"type":"webrtc.ping"}');
+        this.clearPongTimeout();
+        this.pongTimer = setTimeout(() => {
+          console.warn('[webrtc] Keepalive timeout — no pong received');
+          this.isConnected = false;
+          this.stopKeepalive();
+          this.onErrorCb?.(new Error('Keepalive timeout'));
+        }, this.pingTimeout);
+      } catch {
+        this.stopKeepalive();
+      }
+    }, this.pingInterval);
+  }
+
+  private stopKeepalive(): void {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+    this.clearPongTimeout();
+  }
+
+  private clearPongTimeout(): void {
+    if (this.pongTimer) {
+      clearTimeout(this.pongTimer);
+      this.pongTimer = null;
+    }
   }
 }

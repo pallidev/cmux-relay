@@ -30,11 +30,13 @@ export class RelayConnection {
   private e2e: AgentE2ECrypto | null;
   private connectedClients = new Set<string>();
   private webrtcClients = new Map<string, WebRTCTransport>();
+  private webrtcOpts?: { pingInterval?: number; pingTimeout?: number };
 
-  constructor(relayUrl: string, apiToken?: string, e2e?: AgentE2ECrypto) {
+  constructor(relayUrl: string, apiToken?: string, e2e?: AgentE2ECrypto, webrtcOpts?: { pingInterval?: number; pingTimeout?: number }) {
     this.relayUrl = relayUrl;
     this.apiToken = apiToken || null;
     this.e2e = e2e || null;
+    this.webrtcOpts = webrtcOpts;
   }
 
   onToken(handler: (token: string) => void): void {
@@ -386,7 +388,7 @@ export class RelayConnection {
     this.cleanupWebRTC(clientId);
 
     try {
-      const transport = new WebRTCTransport();
+      const transport = new WebRTCTransport(this.webrtcOpts);
 
       transport.onMessage((msg) => {
         try {

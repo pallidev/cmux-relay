@@ -4,7 +4,7 @@ import { LoginPage } from './components/LoginPage';
 import { PairPage } from './components/PairPage';
 import { Layout } from './components/Layout';
 import { InstallBanner } from './components/InstallBanner';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 function getPairCodeFromPath(): string | null {
   const match = window.location.pathname.match(/^\/pair\/([A-Fa-f0-9]+)$/);
@@ -50,7 +50,7 @@ function TerminalPage() {
   });
   const [loading, setLoading] = useState(true);
 
-  const fetchSession = () => {
+  const fetchSession = useCallback(() => {
     if (!jwt) return;
     fetch('/api/sessions', { headers: { Authorization: `Bearer ${jwt}` } })
       .then(res => res.ok ? res.json() : [])
@@ -60,17 +60,19 @@ function TerminalPage() {
           const id = sessions[0].sessionId;
           localStorage.setItem('cmux-session-id', id);
           setSessionId(id);
+        } else {
+          localStorage.removeItem('cmux-session-id');
+          setSessionId(null);
         }
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  };
+  }, [jwt]);
 
   useEffect(() => {
     if (!jwt) { setLoading(false); return; }
-    if (!sessionId) { fetchSession(); return; }
-    setLoading(false);
-  }, [jwt]);
+    fetchSession();
+  }, [jwt, fetchSession]);
 
   const handleDisconnect = () => {
     setTimeout(fetchSession, 2000);

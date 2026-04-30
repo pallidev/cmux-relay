@@ -114,6 +114,10 @@ describe('relay-connection (integration unit)', () => {
 
       await conn.connect();
 
+      // Need a connected client for send() to deliver
+      agentWs!.send(encodeMessage({ type: 'client.connected' }));
+      await new Promise((r) => setTimeout(r, 100));
+
       const received: string[] = [];
       agentWs!.on('message', (raw) => {
         received.push(typeof raw === 'string' ? raw : raw.toString('utf-8'));

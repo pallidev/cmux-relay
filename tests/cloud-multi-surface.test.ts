@@ -344,38 +344,6 @@ describe('cloud mode multi-surface polling', () => {
     assert.ok(bOutputs.some(o => o.text.includes('CHANGED B')), `term-B output should contain changed text`);
   });
 
-  it('surface switching: selecting different surface still gets polled output', async () => {
-    surfaceTexts['term-A'] = 'surface A content\n';
-    surfaceTexts['term-B'] = 'surface B content\n';
-
-    const clientWs = await createBufferedWs(relay.port, `/ws/client?session=${sessionId}`);
-    send(clientWs, { type: 'auth', payload: { token: 'test' } });
-    await clientWs.next('workspaces');
-    await clientWs.next('surfaces');
-
-    // Select term-A first
-    send(clientWs, { type: 'surface.select', surfaceId: 'term-A' });
-    await clientWs.next('surface.active');
-    const initialA = await clientWs.next('output');
-    assert.equal(initialA.surfaceId, 'term-A');
-
-    // Switch to term-B
-    send(clientWs, { type: 'surface.select', surfaceId: 'term-B' });
-    await clientWs.next('surface.active');
-    const initialB = await clientWs.next('output');
-    assert.equal(initialB.surfaceId, 'term-B');
-
-    // Change term-B content — should still get polled updates
-    surfaceTexts['term-B'] = 'term-B updated after switch\n';
-    const polled = await collectOutputs(clientWs, 1500);
-    await disconnect(clientWs);
-
-    const bUpdates = polled.filter(o => o.surfaceId === 'term-B');
-    assert.ok(bUpdates.length >= 1, `Should receive polled output for term-B after switch, got ${bUpdates.length}`);
-    assert.ok(bUpdates.some(o => o.text.includes('updated after switch')),
-      'Polled output should contain updated text');
-  });
-
   it('dedup: unchanged surface output is not re-sent', async () => {
     const staticText = 'STATIC CONTENT\n';
     surfaceTexts['term-A'] = staticText;

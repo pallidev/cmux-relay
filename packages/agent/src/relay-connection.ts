@@ -152,6 +152,10 @@ export class RelayConnection {
   }
 
   private async handleIncomingClientData(msg: ClientOutgoing, clientId: string): Promise<void> {
+    if (msg.type === 'ping') {
+      return; // Browser keepalive, no action needed
+    }
+
     if (msg.type === 'webrtc.answer') {
       console.log(`[agent] WebRTC answer received from ${clientId}`);
       this.webrtcClients.get(clientId)?.handleAnswer(msg.sdp);
@@ -210,8 +214,13 @@ export class RelayConnection {
 
     const data = JSON.stringify(finalPayload);
 
-    // Per-client delivery: try WebRTC P2P first, fallback to relay
+    // Per-client delivery: notifications always via relay (reliable), output via P2P + relay fallback
     for (const clientId of this.connectedClients) {
+      if (payload.type === 'notifications') {
+        // Always send notifications via relay for reliable delivery
+        this.sendTargeted(clientId, finalPayload);
+        continue;
+      }
       const webrtc = this.webrtcClients.get(clientId);
       if (webrtc?.isActive()) {
         if (!webrtc.send(data)) {

@@ -53,7 +53,8 @@ export type ClientOutgoing =
   | ResizeMessage
   | E2EInitMessage
   | WebRTCAnswerMessage
-  | WebRTCIceCandidateMessage;
+  | WebRTCIceCandidateMessage
+  | { type: 'ping' };
 
 // ─── Server → Client ───
 

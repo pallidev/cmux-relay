@@ -114,6 +114,7 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
     let reconnectTimer: ReturnType<typeof setTimeout>;
     let reconnectDelay = 1000;
     let hiddenAt = 0;
+    let pingTimer: ReturnType<typeof setInterval> | null = null;
 
     const setupWebRTC = (offer: RTCSessionDescriptionInit) => {
       if (disposed) return;
@@ -245,6 +246,14 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
           e2eRef.current = e2e;
           ws.send(JSON.stringify({ type: 'e2e.init', publicKey: e2ePublicKey }));
         }
+
+        // Periodic ping to keep relay WebSocket alive during idle
+        if (pingTimer) clearInterval(pingTimer);
+        pingTimer = setInterval(() => {
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: 'ping' }));
+          }
+        }, 25_000);
       };
 
       ws.onmessage = async (event) => {
@@ -336,6 +345,7 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
     return () => {
       disposed = true;
       clearTimeout(reconnectTimer);
+      if (pingTimer) clearInterval(pingTimer);
       document.removeEventListener('visibilitychange', onVisible);
       cleanupWebRTC();
       wsRef.current?.close();

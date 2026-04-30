@@ -214,13 +214,12 @@ export class RelayConnection {
 
     const data = JSON.stringify(finalPayload);
 
-    // Per-client delivery: notifications always via relay (reliable), output via P2P + relay fallback
+    // Per-client delivery: notifications broadcast via relay (enables push fallback), output via P2P + relay fallback
+    if (payload.type === 'notifications') {
+      this.sendBroadcast(finalPayload);
+      return;
+    }
     for (const clientId of this.connectedClients) {
-      if (payload.type === 'notifications') {
-        // Always send notifications via relay for reliable delivery
-        this.sendTargeted(clientId, finalPayload);
-        continue;
-      }
       const webrtc = this.webrtcClients.get(clientId);
       if (webrtc?.isActive()) {
         if (!webrtc.send(data)) {
@@ -238,6 +237,15 @@ export class RelayConnection {
         type: 'agent.data',
         payload,
         targetClient: clientId,
+      }));
+    }
+  }
+
+  private sendBroadcast(payload: RelayToClient): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(encodeMessage({
+        type: 'agent.data',
+        payload,
       }));
     }
   }

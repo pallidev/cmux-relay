@@ -123,19 +123,19 @@ export class SessionRegistry {
             client.ws.send(payload);
           }
         }
+      }
 
-        // Send push notifications for notifications (always, for mobile PWA background delivery)
-        if (this.db && (msg.payload as any).type === 'notifications') {
-          const notifs = (msg.payload as any).payload?.notifications as Array<{ title: string; subtitle: string; body: string; workspaceId?: string; surfaceId?: string }>;
-          if (notifs && notifs.length > 0) {
-            for (const n of notifs) {
-              sendPushToUser(this.db, session.userId, {
-                title: n.title,
-                body: n.subtitle ? `${n.subtitle}: ${n.body}` : n.body,
-                workspaceId: n.workspaceId,
-                surfaceId: n.surfaceId,
-              });
-            }
+      // Send push notifications for notifications (always, for mobile PWA background delivery)
+      if (this.db && (msg.payload as any).type === 'notifications') {
+        const notifs = (msg.payload as any).payload?.notifications as Array<{ title: string; subtitle: string; body: string; workspaceId?: string; surfaceId?: string }>;
+        if (notifs && notifs.length > 0) {
+          for (const n of notifs) {
+            sendPushToUser(this.db, session.userId, {
+              title: n.title,
+              body: n.subtitle ? `${n.subtitle}: ${n.body}` : n.body,
+              workspaceId: n.workspaceId,
+              surfaceId: n.surfaceId,
+            });
           }
         }
       }

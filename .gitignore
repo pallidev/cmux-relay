@@ -25,6 +25,9 @@ package-lock.json
 skills/
 skills-lock.json
 
+# Next.js
+packages/web/.next/
+
 # Test artifacts
 test-results/
 toast-screenshot.png

@@ -5,6 +5,23 @@ import { ClientE2ECrypto } from '../lib/e2e-crypto';
 type RelayStatus = 'connecting' | 'connected' | 'disconnected';
 type TransportType = 'relay' | 'p2p';
 
+export type ConnectionPhase =
+  | 'idle'
+  | 'connecting'
+  | 'authenticating'
+  | 'waiting-agent'
+  | 'connected'
+  | 'reconnecting'
+  | 'error';
+
+const PHASE_ORDER: ConnectionPhase[] = ['connecting', 'authenticating', 'waiting-agent', 'connected'];
+
+function phaseIndex(p: ConnectionPhase | null): number {
+  if (p === null) return -1;
+  const i = PHASE_ORDER.indexOf(p);
+  return i >= 0 ? i : -1;
+}
+
 interface UseRelayOptions {
   url: string;
   token?: string;
@@ -17,7 +34,11 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
   const e2eRef = useRef<ClientE2ECrypto | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dcRef = useRef<RTCDataChannel | null>(null);
-  const [status, setStatus] = useState<RelayStatus>('disconnected');
+  const [phase, setPhase] = useState<ConnectionPhase>('idle');
+  const [highestPhase, setHighestPhase] = useState<ConnectionPhase | null>(null);
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
+  const [reconnectDelay, setReconnectDelay] = useState(0);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [transport, setTransport] = useState<TransportType>('relay');
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([]);
   const [surfaces, setSurfaces] = useState<SurfaceInfo[]>([]);
@@ -28,6 +49,14 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<CmuxNotification[]>([]);
   const [e2eReady, setE2eReady] = useState(false);
+  const phaseRef = useRef<ConnectionPhase>('idle');
+  const highestPhaseRef = useRef<ConnectionPhase | null>(null);
+
+  // Derived status for backward compatibility
+  const status: RelayStatus = phase === 'connected' ? 'connected'
+    : phase === 'idle' || phase === 'error' ? 'disconnected'
+    : 'connecting';
+
   const outputCbRef = useRef<(surfaceId: string, data: string) => void>(() => {});
   const notificationCbRef = useRef<(notifications: CmuxNotification[]) => void>(() => {});
 
@@ -43,12 +72,21 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
     switch (msg.type) {
       case 'workspaces':
         setWorkspaces(msg.payload.workspaces);
+        phaseRef.current = 'connected';
+        setPhase('connected');
+        highestPhaseRef.current = 'connected';
+        setHighestPhase('connected');
+        setReconnectAttempt(0);
         break;
       case 'surfaces':
         setSurfaces(prev => {
           const next = prev.filter(s => s.workspaceId !== msg.workspaceId);
           return [...next, ...msg.payload.surfaces];
         });
+        if (phaseRef.current !== 'connected') {
+          phaseRef.current = 'waiting-agent';
+          setPhase('waiting-agent');
+        }
         break;
       case 'panes':
         setPanes(prev => {
@@ -115,6 +153,16 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
     let reconnectDelay = 1000;
     let hiddenAt = 0;
     let pingTimer: ReturnType<typeof setInterval> | null = null;
+    let pongTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const updatePhase = (p: ConnectionPhase) => {
+      phaseRef.current = p;
+      setPhase(p);
+    };
+    const updateHighestPhase = (p: ConnectionPhase | null) => {
+      highestPhaseRef.current = p;
+      setHighestPhase(p);
+    };
 
     const setupWebRTC = (offer: RTCSessionDescriptionInit) => {
       if (disposed) return;
@@ -231,12 +279,13 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
 
       const ws = new WebSocket(url);
       wsRef.current = ws;
-      setStatus('connecting');
+      updatePhase('connecting');
 
       ws.onopen = () => {
         if (disposed) return;
         reconnectDelay = 1000;
-        setStatus('connected');
+        updatePhase('authenticating');
+        setErrorMessage(null);
 
         if (token) {
           ws.send(JSON.stringify({ type: 'auth', payload: { token } }));
@@ -252,12 +301,24 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
         pingTimer = setInterval(() => {
           if (wsRef.current?.readyState === WebSocket.OPEN) {
             wsRef.current.send(JSON.stringify({ type: 'ping' }));
+            if (pongTimer) clearTimeout(pongTimer);
+            pongTimer = setTimeout(() => {
+              console.warn('[relay] Pong timeout — forcing reconnect');
+              const oldWs = wsRef.current;
+              wsRef.current = null;
+              if (oldWs) { oldWs.onclose = null; oldWs.close(); }
+              cleanupWebRTC();
+              updatePhase('reconnecting');
+              setReconnectAttempt(prev => prev + 1);
+              reconnectTimer = setTimeout(connect, 1000);
+            }, 10_000);
           }
         }, 25_000);
       };
 
       ws.onmessage = async (event) => {
         if (disposed) return;
+        if (pongTimer) { clearTimeout(pongTimer); pongTimer = null; }
         const msg = JSON.parse(event.data as string);
 
         if (msg.type === 'webrtc.offer') {
@@ -290,20 +351,38 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
         handleMessage(msg);
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         if (disposed) return;
         wsRef.current = null;
-        setStatus('disconnected');
+
+        const currentPhaseIdx = phaseIndex(phaseRef.current);
+        if (currentPhaseIdx > phaseIndex(highestPhaseRef.current)) {
+          updateHighestPhase(phaseRef.current);
+        }
+
+        setReconnectAttempt(prev => prev + 1);
+
+        if (event.code !== 1000) {
+          setReconnectDelay(0);
+          updatePhase('reconnecting');
+          reconnectTimer = setTimeout(connect, 300);
+        } else {
+          setReconnectDelay(reconnectDelay);
+          updatePhase('reconnecting');
+          reconnectTimer = setTimeout(connect, reconnectDelay);
+          reconnectDelay = Math.min(reconnectDelay * 2, 10000);
+        }
+
         setE2eReady(false);
         e2eRef.current = null;
         cleanupWebRTC();
-        reconnectTimer = setTimeout(connect, reconnectDelay);
-        reconnectDelay = Math.min(reconnectDelay * 2, 10000);
       };
 
-      ws.onerror = () => {
+      ws.onerror = (err: Event) => {
         if (disposed) return;
-        setStatus('disconnected');
+        updatePhase('error');
+        const message = (err as ErrorEvent)?.message ?? 'WebSocket error';
+        setErrorMessage(message);
       };
     };
 
@@ -319,7 +398,8 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
         oldWs.close();
       }
       cleanupWebRTC();
-      setStatus('disconnected');
+      updatePhase('reconnecting');
+      setReconnectDelay(300);
       setE2eReady(false);
       e2eRef.current = null;
       reconnectDelay = 1000;
@@ -348,6 +428,7 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
       disposed = true;
       clearTimeout(reconnectTimer);
       if (pingTimer) clearInterval(pingTimer);
+      if (pongTimer) clearTimeout(pongTimer);
       document.removeEventListener('visibilitychange', onVisible);
       cleanupWebRTC();
       wsRef.current?.close();
@@ -397,5 +478,5 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
     );
   }, [sendViaTransport]);
 
-  return { status, transport, workspaces, surfaces, panes, containerFrames, activeSurfaceId, activeWorkspaceId, notifications, e2eReady, selectSurface, requestWorkspaces, sendInput, sendResize, onOutput, onNotifications };
+  return { status, phase, highestPhase, reconnectAttempt, reconnectDelay, errorMessage, transport, workspaces, surfaces, panes, containerFrames, activeSurfaceId, activeWorkspaceId, notifications, e2eReady, selectSurface, requestWorkspaces, sendInput, sendResize, onOutput, onNotifications };
 }

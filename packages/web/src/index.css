@@ -1331,3 +1331,99 @@ html, body, #root {
   color: var(--text-muted);
   font-size: 0.75rem;
 }
+
+/* Connection Overlay */
+.connection-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(30, 30, 46, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  animation: connFadeIn 0.2s ease;
+}
+
+@keyframes connFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.connection-overlay-content {
+  text-align: center;
+  max-width: 320px;
+  width: 100%;
+  padding: 0 1rem;
+}
+
+.connection-spinner {
+  margin-bottom: 1.25rem;
+  animation: connSpin 1.5s linear infinite;
+}
+
+.connection-spinner svg {
+  display: block;
+  margin: 0 auto;
+}
+
+@keyframes connSpin {
+  to { transform: rotate(360deg); }
+}
+
+.connection-title {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.connection-detail {
+  color: var(--text-sub);
+  font-size: 0.8rem;
+  margin: 0 0 1.25rem;
+}
+
+.connection-progress-track {
+  background: var(--bg-surface0);
+  border-radius: 999px;
+  height: 3px;
+  width: 100%;
+  margin-bottom: 0.75rem;
+  overflow: hidden;
+}
+
+.connection-progress-bar {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.5s ease;
+}
+
+.connection-steps {
+  text-align: left;
+  font-size: 0.72rem;
+  line-height: 1.9;
+}
+
+.connection-step {
+  color: var(--text-muted);
+}
+
+.connection-step.complete {
+  color: var(--green);
+}
+
+.connection-step.current {
+  color: var(--blue);
+  font-weight: 600;
+}
+
+.connection-attempt {
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  margin-top: 0.75rem;
+}
+
+/* Status text in header */
+.status-text {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}

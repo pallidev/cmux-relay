@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useRelay } from '../hooks/useRelay';
 import { Terminal, writeToTerminal } from './Terminal';
+import { ConnectionOverlay } from './ConnectionOverlay';
 import { getRelayWsUrl, getToastType } from '../lib/helpers';
 import { registerServiceWorker, subscribePush, getPendingNavigation, onNavigateFromPush } from '../lib/push';
 import type { CmuxNotification } from '@cmux-relay/shared';
@@ -51,6 +52,11 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
 
   const {
     status,
+    phase,
+    highestPhase,
+    reconnectAttempt,
+    reconnectDelay,
+    errorMessage,
     transport,
     workspaces,
     surfaces,
@@ -357,6 +363,14 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
           </button>
           <span className="status">
             <span className={`status-dot ${status}`} />
+            <span className="status-text">
+              {status === 'connected' ? '연결됨' :
+               phase === 'reconnecting' ? `재연결 (${Math.ceil(reconnectDelay / 1000)}s)` :
+               phase === 'connecting' ? 'WebSocket 연결 중...' :
+               phase === 'authenticating' ? '인증 중...' :
+               phase === 'waiting-agent' ? 'Agent 대기...' :
+               status === 'disconnected' ? '연결 끊김' : '연결 중...'}
+            </span>
           </span>
 		          <span className={`transport-badge ${transport}`}>{transport === 'p2p' ? 'P2P' : 'Relay'}</span>
           <span className="mobile-header-title">
@@ -397,6 +411,14 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
         <div
           className="mobile-terminal-area"
         >
+          <ConnectionOverlay
+            phase={phase}
+            highestPhase={highestPhase}
+            reconnectAttempt={reconnectAttempt}
+            reconnectDelay={reconnectDelay}
+            errorMessage={errorMessage}
+            transport={transport}
+          />
           {activeSurface ? (
             <Terminal
               surfaceId={activeSurface.id}

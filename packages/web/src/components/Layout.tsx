@@ -3,6 +3,7 @@ import { useRelay } from '../hooks/useRelay';
 import { useMobile } from '../hooks/useMobile';
 import { MobileLayout } from './MobileLayout';
 import { Terminal, writeToTerminal } from './Terminal';
+import { ConnectionOverlay } from './ConnectionOverlay';
 import { getRelayWsUrl, getToastType } from '../lib/helpers';
 import { registerServiceWorker, subscribePush, getPendingNavigation, onNavigateFromPush } from '../lib/push';
 import type { PaneInfo, CmuxNotification } from '@cmux-relay/shared';
@@ -34,6 +35,11 @@ export function Layout() {
 
   const {
     status,
+    phase,
+    highestPhase,
+    reconnectAttempt,
+    reconnectDelay,
+    errorMessage,
     transport,
     workspaces,
     surfaces,
@@ -248,6 +254,14 @@ export function Layout() {
           </button>
           <span className="status">
             <span className={`status-dot ${status}`} />
+            <span className="status-text">
+              {status === 'connected' ? '연결됨' :
+               phase === 'reconnecting' ? `재연결 (${Math.ceil(reconnectDelay / 1000)}s)` :
+               phase === 'connecting' ? 'WebSocket 연결 중...' :
+               phase === 'authenticating' ? '인증 중...' :
+               phase === 'waiting-agent' ? 'Agent 대기...' :
+               status === 'disconnected' ? '연결 끊김' : '연결 중...'}
+            </span>
           </span>
           <span className={`transport-badge ${transport}`}>{transport === 'p2p' ? 'P2P' : 'Relay'}</span>
           <span className="header-title">
@@ -316,6 +330,14 @@ export function Layout() {
             </aside>
           )}
           <main className="terminal-area">
+            <ConnectionOverlay
+              phase={phase}
+              highestPhase={highestPhase}
+              reconnectAttempt={reconnectAttempt}
+              reconnectDelay={reconnectDelay}
+              errorMessage={errorMessage}
+              transport={transport}
+            />
             {selectedWorkspaceId ? (
               wsPanes.length > 0 && paneBounds ? (
                 /* Workspace with pane layout (all workspaces now have pane data) */

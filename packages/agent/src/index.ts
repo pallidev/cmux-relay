@@ -275,11 +275,24 @@ async function runLocalMode() {
 
   const syncInterval = setInterval(syncAll, 5000);
 
+  // Track which surface is handled by PTY capture (skip cmux polling for it)
+  let ptySurfaceId: string | null = null;
+
+  const getFirstTerminalSurfaceId = (): string | null => {
+    for (const [id, surf] of store.getAllSurfaces()) {
+      if (surf.type === 'terminal') return id;
+    }
+    return null;
+  };
+
   const ptyCapture = new PtyCapture((chunk) => {
+    const surfaceId = getFirstTerminalSurfaceId();
+    if (!surfaceId) return;
+    ptySurfaceId = surfaceId;
     const data = chunk.toString('base64');
-    store.sendToClientsWithSurface('default', {
+    store.sendToClientsWithSurface(surfaceId, {
       type: 'output',
-      surfaceId: 'default',
+      surfaceId,
       payload: { data },
     });
   });
@@ -302,6 +315,7 @@ async function runLocalMode() {
       const activeIds = store.getActiveSurfaceIds();
       if (activeIds.size === 0) return;
       for (const surfaceId of activeIds) {
+        if (surfaceId === ptySurfaceId) continue; // PTY capture handles this surface
         const surface = store.getSurface(surfaceId);
         if (surface?.type === 'terminal') {
           const text = await cmux.readTerminalText(surfaceId);
@@ -491,10 +505,22 @@ async function runCloudMode(savedAuth: AuthData | null) {
   const syncInterval = setInterval(syncAll, 5000);
   const notificationPollInterval = setInterval(pollNotifications, 2000);
 
+  let cloudPtySurfaceId: string | null = null;
+
+  const getFirstTerminalSurfaceId = (): string | null => {
+    for (const [id, surf] of store.getAllSurfaces()) {
+      if (surf.type === 'terminal') return id;
+    }
+    return null;
+  };
+
   const ptyCapture = new PtyCapture((chunk) => {
     if (!relay.hasClients()) return;
+    const surfaceId = getFirstTerminalSurfaceId();
+    if (!surfaceId) return;
+    cloudPtySurfaceId = surfaceId;
     const data = chunk.toString('base64');
-    broadcastViaRelay({ type: 'output', surfaceId: 'default', payload: { data } });
+    broadcastViaRelay({ type: 'output', surfaceId, payload: { data } });
   });
 
   try {
@@ -514,6 +540,7 @@ async function runCloudMode(savedAuth: AuthData | null) {
       if (!relay.hasClients()) return;
       for (const [, surf] of store.getAllSurfaces()) {
         if (surf.type !== 'terminal') continue;
+        if (surf.id === cloudPtySurfaceId) continue; // PTY capture handles this surface
         const text = await cmux.readTerminalText(surf.id);
         if (text) {
           const b64 = Buffer.from(text).toString('base64');

@@ -244,6 +244,41 @@ describe('cmux-relay integration', () => {
     store.updateSurfaces('ws-out', []);
   });
 
+  it('ANSI colored output preserved through pipeline', async () => {
+    store.updateWorkspaces([
+      { id: 'ws-ansi', title: 'ANSI Workspace' },
+    ]);
+    store.updateSurfaces('ws-ansi', [
+      { id: 's-ansi', title: 'ansi-test', type: 'terminal', workspaceId: 'ws-ansi' },
+    ]);
+
+    const ws = await connect(port);
+    send(ws, { type: 'auth', payload: { token: signToken('client') } });
+    await waitForMessage(ws, 'workspaces');
+    send(ws, { type: 'surface.select', surfaceId: 's-ansi' });
+    await waitForMessage(ws, 'surface.active');
+
+    const ansiText = '\x1b[31mHello\x1b[0m \x1b[32mWorld\x1b[0m';
+    const ansiB64 = Buffer.from(ansiText).toString('base64');
+    store.sendToClientsWithSurface('s-ansi', {
+      type: 'output',
+      surfaceId: 's-ansi',
+      payload: { data: ansiB64 },
+    });
+
+    const out = await waitForMessage(ws, 'output');
+    assert.equal(out.payload.data, ansiB64);
+    const decoded = Buffer.from(out.payload.data, 'base64').toString();
+    assert.equal(decoded, ansiText);
+    assert.ok(decoded.includes('\x1b[31m'), 'Should preserve red ANSI code');
+    assert.ok(decoded.includes('\x1b[32m'), 'Should preserve green ANSI code');
+    assert.ok(decoded.includes('\x1b[0m'), 'Should preserve reset code');
+
+    await disconnect(ws);
+    store.updateWorkspaces([]);
+    store.updateSurfaces('ws-ansi', []);
+  });
+
   it('output not sent to client watching different surface', async () => {
     store.updateWorkspaces([
       { id: 'ws-leak', title: 'Leak Workspace' },

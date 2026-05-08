@@ -245,6 +245,100 @@ describe('CmuxClient', () => {
       }
     });
 
+    it('readTerminalText preserves ANSI escape sequences', async () => {
+      const textSocket = join(tmpdir(), `cmux-ansi-test-${Date.now()}.sock`);
+      const ansiText = '\x1b[31mHello\x1b[0m \x1b[32mWorld\x1b[0m';
+      const encodedAnsi = Buffer.from(ansiText).toString('base64');
+      const textServer = await createMockServer(textSocket, (req, respond) => {
+        if (req.method === 'surface.read_text') {
+          if (req.params?.ansi === true) {
+            respond({ base64: encodedAnsi });
+          } else {
+            respond({ base64: Buffer.from('plain text fallback').toString('base64') });
+          }
+        } else {
+          respond({});
+        }
+      });
+
+      const c = new CmuxClient(textSocket);
+      await c.connect();
+      try {
+        const text = await c.readTerminalText('s1');
+        assert.equal(text, ansiText);
+        assert.ok(text.includes('\x1b[31m'), 'Should contain red ANSI code');
+        assert.ok(text.includes('\x1b[32m'), 'Should contain green ANSI code');
+        assert.ok(text.includes('\x1b[0m'), 'Should contain reset code');
+      } finally {
+        c.disconnect();
+        await new Promise<void>(r => textServer.close(() => r()));
+      }
+    });
+
+    it('readTerminalText sends ansi=true in params', async () => {
+      const textSocket = join(tmpdir(), `cmux-ansi-param-test-${Date.now()}.sock`);
+      let receivedParams: any = null;
+      const textServer = await createMockServer(textSocket, (req, respond) => {
+        if (req.method === 'surface.read_text') {
+          receivedParams = req.params;
+          respond({ base64: Buffer.from('text').toString('base64') });
+        } else {
+          respond({});
+        }
+      });
+
+      const c = new CmuxClient(textSocket);
+      await c.connect();
+      try {
+        await c.readTerminalText('s1');
+        assert.ok(receivedParams);
+        assert.equal(receivedParams.ansi, true, 'Should send ansi=true on first call');
+      } finally {
+        c.disconnect();
+        await new Promise<void>(r => textServer.close(() => r()));
+      }
+    });
+
+    it('readTerminalText falls back when ansi param is rejected', async () => {
+      const textSocket = join(tmpdir(), `cmux-ansi-fallback-test-${Date.now()}.sock`);
+      let callCount = 0;
+      const textServer = await createNetServer();
+      textServer.on('connection', (sock: Socket) => {
+        sock.on('data', (data) => {
+          const lines = data.toString().split('\n').filter(Boolean);
+          for (const line of lines) {
+            try {
+              const req = JSON.parse(line);
+              if (req.method === 'surface.read_text') {
+                callCount++;
+                if (req.params?.ansi === true) {
+                  // Send error response (ok: false) to trigger catch block in readTerminalText
+                  sock.write(JSON.stringify({ id: req.id, ok: false, error: { code: 'unknown_method', message: 'ansi not supported' } }) + '\n');
+                } else {
+                  sock.write(JSON.stringify({ id: req.id, ok: true, result: { base64: Buffer.from('plain fallback').toString('base64') } }) + '\n');
+                }
+              } else {
+                sock.write(JSON.stringify({ id: req.id, ok: true, result: {} }) + '\n');
+              }
+            } catch { /* skip */ }
+          }
+        });
+      });
+      await new Promise<void>(r => textServer.listen(textSocket, () => r()));
+
+      const c = new CmuxClient(textSocket);
+      await c.connect();
+      try {
+        const text = await c.readTerminalText('s1');
+        // First call fails with ansi=true, fallback succeeds with plain text
+        assert.equal(text, 'plain fallback');
+        assert.equal(callCount, 2, 'Should make two calls: ansi attempt + fallback');
+      } finally {
+        c.disconnect();
+        await new Promise<void>(r => textServer.close(() => r()));
+      }
+    });
+
     it('sendText sends correct RPC', async () => {
       const sendSocket = join(tmpdir(), `cmux-send-test-${Date.now()}.sock`);
       let receivedReqs: any[] = [];

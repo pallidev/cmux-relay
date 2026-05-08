@@ -171,4 +171,71 @@ describe('writeOutput scrollback logic', () => {
     assert.equal(capture.written[1], '\x1b[40;1H', 'Move to row 40');
     assert.equal(capture.written[2], 'v1\n', 'Push previous content with separator');
   });
+
+  // ─── ANSI color preservation tests ───
+
+  it('first write preserves ANSI escape sequences', () => {
+    const { written, writeOutput } = createWriteOutputCapture();
+    const ansiText = '\x1b[31mHello\x1b[0m \x1b[32mWorld\x1b[0m';
+    writeOutput(Buffer.from(ansiText).toString('base64'));
+
+    assert.equal(written.length, 1);
+    assert.equal(written[0], ansiText, 'ANSI codes should be preserved in first write');
+    assert.ok(written[0].includes('\x1b[31m'), 'Should contain red ANSI code');
+    assert.ok(written[0].includes('\x1b[0m'), 'Should contain reset code');
+  });
+
+  it('subsequent writes preserve ANSI sequences in screen update', () => {
+    const { written, writeOutput } = createWriteOutputCapture();
+    const v1 = '\x1b[31mRed Screen\x1b[0m';
+    const v2 = '\x1b[32mGreen Screen\x1b[0m';
+
+    writeOutput(Buffer.from(v1).toString('base64'));
+    writeOutput(Buffer.from(v2).toString('base64'));
+
+    // written[0] = v1 (first write)
+    // written[1] = cursor move, written[2] = v1+\n (scrollback push), written[3] = cursor home
+    // written[4] = v2, written[5] = clear
+    assert.equal(written[0], v1, 'First write preserves ANSI');
+    assert.equal(written[2], v1 + '\n', 'Scrollback push preserves ANSI in previous content');
+    assert.equal(written[4], v2, 'New content preserves ANSI');
+  });
+
+  it('ANSI data dedup works correctly', () => {
+    const { written, writeOutput } = createWriteOutputCapture();
+    const ansiText = '\x1b[33mYellow\x1b[0m';
+    const b64 = Buffer.from(ansiText).toString('base64');
+
+    writeOutput(b64);
+    const lenAfterFirst = written.length;
+    writeOutput(b64); // Same ANSI data, should be dedup'd
+    writeOutput(b64); // Again
+
+    assert.equal(written.length, lenAfterFirst, 'Identical ANSI data should be deduped');
+
+    // Different ANSI data should go through
+    writeOutput(Buffer.from('\x1b[34mBlue\x1b[0m').toString('base64'));
+    assert.ok(written.length > lenAfterFirst, 'Different ANSI data should not be deduped');
+  });
+
+  it('mixed ANSI colors in one screen are preserved', () => {
+    const { written, writeOutput } = createWriteOutputCapture();
+    const mixedAnsi = '\x1b[31mRed\x1b[32mGreen\x1b[34mBlue\x1b[0mNormal';
+    writeOutput(Buffer.from(mixedAnsi).toString('base64'));
+
+    assert.equal(written[0], mixedAnsi);
+    assert.ok(written[0].includes('\x1b[31m'), 'Red code preserved');
+    assert.ok(written[0].includes('\x1b[32m'), 'Green code preserved');
+    assert.ok(written[0].includes('\x1b[34m'), 'Blue code preserved');
+    assert.ok(written[0].includes('\x1b[0m'), 'Reset code preserved');
+  });
+
+  it('background color ANSI codes are preserved', () => {
+    const { written, writeOutput } = createWriteOutputCapture();
+    const bgAnsi = '\x1b[41mRed Background\x1b[0m';
+    writeOutput(Buffer.from(bgAnsi).toString('base64'));
+
+    assert.equal(written[0], bgAnsi);
+    assert.ok(written[0].includes('\x1b[41m'), 'Background color code preserved');
+  });
 });

@@ -8,13 +8,14 @@ type TransportType = 'relay' | 'p2p';
 export type ConnectionPhase =
   | 'idle'
   | 'connecting'
-  | 'authenticating'
   | 'waiting-agent'
   | 'connected'
   | 'reconnecting'
   | 'error';
 
-const PHASE_ORDER: ConnectionPhase[] = ['connecting', 'authenticating', 'waiting-agent', 'connected'];
+const PHASE_ORDER: ConnectionPhase[] = ['connecting', 'waiting-agent', 'connected'];
+
+export type P2PStatus = 'none' | 'attempting' | 'connected' | 'failed';
 
 function phaseIndex(p: ConnectionPhase | null): number {
   if (p === null) return -1;
@@ -51,6 +52,9 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
   const [e2eReady, setE2eReady] = useState(false);
   const phaseRef = useRef<ConnectionPhase>('idle');
   const highestPhaseRef = useRef<ConnectionPhase | null>(null);
+  const connectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const p2pTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [p2pStatus, setP2pStatus] = useState<P2PStatus>('none');
 
   // Derived status for backward compatibility
   const status: RelayStatus = phase === 'connected' ? 'connected'
@@ -77,6 +81,7 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
         highestPhaseRef.current = 'connected';
         setHighestPhase('connected');
         setReconnectAttempt(0);
+        if (connectionTimeoutRef.current) { clearTimeout(connectionTimeoutRef.current); connectionTimeoutRef.current = null; }
         break;
       case 'surfaces':
         setSurfaces(prev => {
@@ -149,8 +154,10 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
     if (!url) return;
 
     let disposed = false;
-    let reconnectTimer: ReturnType<typeof setTimeout>;
+    let isConnecting = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let reconnectDelay = 1000;
+    let consecutiveTimeouts = 0;
     let hiddenAt = 0;
     let pingTimer: ReturnType<typeof setInterval> | null = null;
     let pongTimer: ReturnType<typeof setTimeout> | null = null;
@@ -194,18 +201,24 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
         dc.onopen = () => {
           console.log('[webrtc] DataChannel open — P2P active');
           setTransport('p2p');
+          if (p2pTimeoutRef.current) { clearTimeout(p2pTimeoutRef.current); p2pTimeoutRef.current = null; }
+          setP2pStatus('connected');
         };
 
         dc.onclose = () => {
           console.log('[webrtc] DataChannel closed — falling back to relay');
           dcRef.current = null;
           setTransport('relay');
+          if (p2pTimeoutRef.current) { clearTimeout(p2pTimeoutRef.current); p2pTimeoutRef.current = null; }
+          setP2pStatus('failed');
         };
 
         dc.onerror = (err) => {
           console.error('[webrtc] DataChannel error:', err);
           dcRef.current = null;
           setTransport('relay');
+          if (p2pTimeoutRef.current) { clearTimeout(p2pTimeoutRef.current); p2pTimeoutRef.current = null; }
+          setP2pStatus('failed');
         };
 
         dc.onmessage = (event) => {
@@ -264,7 +277,8 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
     };
 
     const connect = async () => {
-      if (disposed) return;
+      if (disposed || isConnecting) return;
+      isConnecting = true;
 
       let e2e: ClientE2ECrypto | null = null;
       let e2ePublicKey: string | null = null;
@@ -283,8 +297,9 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
 
       ws.onopen = () => {
         if (disposed) return;
+        isConnecting = false;
         reconnectDelay = 1000;
-        updatePhase('authenticating');
+        updatePhase('waiting-agent');
         setErrorMessage(null);
 
         if (token) {
@@ -296,6 +311,17 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
           ws.send(JSON.stringify({ type: 'e2e.init', publicKey: e2ePublicKey }));
         }
 
+        // Timeout if we don't reach connected within 15s
+        if (connectionTimeoutRef.current) clearTimeout(connectionTimeoutRef.current);
+        connectionTimeoutRef.current = setTimeout(() => {
+          if (phaseRef.current !== 'connected' && !disposed) {
+            consecutiveTimeouts++;
+            const delay = Math.min(300 * Math.pow(2, Math.min(consecutiveTimeouts - 1, 5)), 30_000);
+            console.warn(`[relay] Connection timeout (#${consecutiveTimeouts}) — forcing reconnect in ${delay}ms`);
+            forceReconnect(delay);
+          }
+        }, 15_000);
+
         // Periodic ping to keep relay WebSocket alive during idle
         if (pingTimer) clearInterval(pingTimer);
         pingTimer = setInterval(() => {
@@ -304,13 +330,7 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
             if (pongTimer) clearTimeout(pongTimer);
             pongTimer = setTimeout(() => {
               console.warn('[relay] Pong timeout — forcing reconnect');
-              const oldWs = wsRef.current;
-              wsRef.current = null;
-              if (oldWs) { oldWs.onclose = null; oldWs.close(); }
-              cleanupWebRTC();
-              updatePhase('reconnecting');
-              setReconnectAttempt(prev => prev + 1);
-              reconnectTimer = setTimeout(connect, 1000);
+              forceReconnect();
             }, 10_000);
           }
         }, 25_000);
@@ -323,7 +343,16 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
 
         if (msg.type === 'webrtc.offer') {
           console.log('[webrtc] Offer received from agent');
+          setP2pStatus('attempting');
           setupWebRTC({ type: 'offer', sdp: msg.sdp });
+          // 10s timeout for P2P attempt
+          if (p2pTimeoutRef.current) clearTimeout(p2pTimeoutRef.current);
+          p2pTimeoutRef.current = setTimeout(() => {
+            if (!disposed) {
+              console.warn('[webrtc] P2P timeout — using relay');
+              setP2pStatus('failed');
+            }
+          }, 10_000);
           return;
         }
 
@@ -349,11 +378,19 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
         }
 
         handleMessage(msg);
+
+        // Reset timeout backoff on successful connection
+        if (msg.type === 'workspaces') {
+          consecutiveTimeouts = 0;
+        }
       };
 
       ws.onclose = (event) => {
         if (disposed) return;
+        isConnecting = false;
         wsRef.current = null;
+
+        if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
 
         const currentPhaseIdx = phaseIndex(phaseRef.current);
         if (currentPhaseIdx > phaseIndex(highestPhaseRef.current)) {
@@ -380,6 +417,7 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
 
       ws.onerror = (err: Event) => {
         if (disposed) return;
+        isConnecting = false;
         updatePhase('error');
         const message = (err as ErrorEvent)?.message ?? 'WebSocket error';
         setErrorMessage(message);
@@ -388,9 +426,14 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
 
     connect();
 
-    const forceReconnect = () => {
-      clearTimeout(reconnectTimer);
+    const forceReconnect = (delay = 300) => {
+      if (disposed || isConnecting) return;
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
+      if (pongTimer) { clearTimeout(pongTimer); pongTimer = null; }
+      if (connectionTimeoutRef.current) { clearTimeout(connectionTimeoutRef.current); connectionTimeoutRef.current = null; }
+      if (p2pTimeoutRef.current) { clearTimeout(p2pTimeoutRef.current); p2pTimeoutRef.current = null; }
+      setP2pStatus('none');
       const oldWs = wsRef.current;
       wsRef.current = null;
       if (oldWs) {
@@ -399,24 +442,30 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
       }
       cleanupWebRTC();
       updatePhase('reconnecting');
-      setReconnectDelay(300);
+      setReconnectDelay(delay);
       setE2eReady(false);
       e2eRef.current = null;
-      reconnectDelay = 1000;
-      setTimeout(connect, 300);
+      reconnectDelay = Math.max(delay, 1000);
+      reconnectTimer = setTimeout(connect, delay);
     };
 
     const onVisible = () => {
       if (document.visibilityState === 'visible' && !disposed) {
-        const wasHidden = hiddenAt > 0 && (Date.now() - hiddenAt) > 3_000;
+        const wasHidden = hiddenAt > 0 && (Date.now() - hiddenAt) > 1_000;
         const wsOk = wsRef.current && wsRef.current.readyState === WebSocket.OPEN;
         if (wasHidden || !wsOk) {
           forceReconnect();
         } else if (wsOk) {
+          // Connection looks alive — verify with a quick request
           wsRef.current!.send(JSON.stringify({ type: 'workspaces.list' }));
-          if (activeSurfaceIdRef.current) {
-            wsRef.current!.send(JSON.stringify({ type: 'surface.select', surfaceId: activeSurfaceIdRef.current }));
-          }
+          // If no response within 5s, force reconnect
+          if (connectionTimeoutRef.current) clearTimeout(connectionTimeoutRef.current);
+          connectionTimeoutRef.current = setTimeout(() => {
+            if (phaseRef.current !== 'connected' && !disposed) {
+              console.warn('[relay] Liveness check failed — forcing reconnect');
+              forceReconnect();
+            }
+          }, 5_000);
         }
       } else if (document.visibilityState === 'hidden') {
         hiddenAt = Date.now();
@@ -424,12 +473,35 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
     };
     document.addEventListener('visibilitychange', onVisible);
 
+    // Reconnect when browser detects network is back online
+    const onOnline = () => {
+      if (!disposed) {
+        console.log('[relay] Network online — forcing reconnect');
+        forceReconnect();
+      }
+    };
+    window.addEventListener('online', onOnline);
+
+    // Handle mobile page lifecycle (frozen → resumed)
+    const onResume = () => {
+      if (!disposed) {
+        console.log('[relay] Page resumed from freeze — forcing reconnect');
+        forceReconnect();
+      }
+    };
+    document.addEventListener('resume', onResume);
+
     return () => {
       disposed = true;
-      clearTimeout(reconnectTimer);
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       if (pingTimer) clearInterval(pingTimer);
       if (pongTimer) clearTimeout(pongTimer);
+      if (connectionTimeoutRef.current) clearTimeout(connectionTimeoutRef.current);
+      connectionTimeoutRef.current = null;
+      if (p2pTimeoutRef.current) clearTimeout(p2pTimeoutRef.current);
       document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('online', onOnline);
+      document.removeEventListener('resume', onResume);
       cleanupWebRTC();
       wsRef.current?.close();
       wsRef.current = null;
@@ -478,5 +550,5 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
     );
   }, [sendViaTransport]);
 
-  return { status, phase, highestPhase, reconnectAttempt, reconnectDelay, errorMessage, transport, workspaces, surfaces, panes, containerFrames, activeSurfaceId, activeWorkspaceId, notifications, e2eReady, selectSurface, requestWorkspaces, sendInput, sendResize, onOutput, onNotifications };
+  return { status, phase, highestPhase, reconnectAttempt, reconnectDelay, errorMessage, transport, p2pStatus, workspaces, surfaces, panes, containerFrames, activeSurfaceId, activeWorkspaceId, notifications, e2eReady, selectSurface, requestWorkspaces, sendInput, sendResize, onOutput, onNotifications };
 }

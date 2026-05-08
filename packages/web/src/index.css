@@ -1416,6 +1416,11 @@ html, body, #root {
   font-weight: 600;
 }
 
+.connection-step.failed {
+  color: var(--red);
+  font-weight: 600;
+}
+
 .connection-attempt {
   color: var(--text-muted);
   font-size: 0.65rem;

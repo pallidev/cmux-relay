@@ -41,6 +41,7 @@ export function Layout() {
     reconnectDelay,
     errorMessage,
     transport,
+    p2pStatus,
     workspaces,
     surfaces,
     panes,
@@ -255,10 +256,9 @@ export function Layout() {
           <span className="status">
             <span className={`status-dot ${status}`} />
             <span className="status-text">
-              {status === 'connected' ? '연결됨' :
+              {status === 'connected' ? (p2pStatus === 'attempting' ? 'P2P 연결 시도 중...' : '') :
                phase === 'reconnecting' ? `재연결 (${Math.ceil(reconnectDelay / 1000)}s)` :
                phase === 'connecting' ? 'WebSocket 연결 중...' :
-               phase === 'authenticating' ? '인증 중...' :
                phase === 'waiting-agent' ? 'Agent 대기...' :
                status === 'disconnected' ? '연결 끊김' : '연결 중...'}
             </span>

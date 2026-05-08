@@ -13,7 +13,6 @@ interface ConnectionOverlayProps {
 
 const STEPS = [
   { key: 'connecting', label: 'WebSocket 연결' },
-  { key: 'authenticating', label: '인증' },
   { key: 'waiting-agent', label: 'Agent 연결 대기' },
 ] as const;
 
@@ -53,7 +52,6 @@ export function ConnectionOverlay({
     : isError
     ? errorMessage || '연결할 수 없습니다'
     : phase === 'connecting' ? 'WebSocket 연결 중...'
-    : phase === 'authenticating' ? '인증 진행 중...'
     : 'Agent 응답 대기...';
 
   const highestIdx = highestPhase ? stepIndex(highestPhase) : -1;

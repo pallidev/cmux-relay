@@ -2,8 +2,11 @@ import WebSocket from 'ws';
 import { encodeMessage, decodeMessage } from '@cmux-relay/shared';
 import type { AgentOutgoing, RelayToAgent, ClientOutgoing, RelayToClient, EncryptedPayload } from '@cmux-relay/shared';
 import { execFileSync } from 'node:child_process';
+import * as net from 'node:net';
+import * as tls from 'node:tls';
 import type { AgentE2ECrypto } from './e2e-crypto.js';
 import { WebRTCTransport } from './webrtc-transport.js';
+import { NetworkMonitor } from './network-monitor.js';
 
 type ClientDataHandler = (msg: ClientOutgoing) => void;
 
@@ -31,6 +34,7 @@ export class RelayConnection {
   private connectedClients = new Set<string>();
   private webrtcClients = new Map<string, WebRTCTransport>();
   private webrtcOpts?: { pingInterval?: number; pingTimeout?: number };
+  private networkMonitor: NetworkMonitor | null = null;
 
   constructor(relayUrl: string, apiToken?: string, e2e?: AgentE2ECrypto, webrtcOpts?: { pingInterval?: number; pingTimeout?: number }) {
     this.relayUrl = relayUrl;
@@ -51,7 +55,7 @@ export class RelayConnection {
       const url = this.apiToken
         ? `${this.relayUrl}?token=${encodeURIComponent(this.apiToken)}`
         : this.relayUrl;
-      const ws = new WebSocket(url);
+      const ws = this.createWebSocket(url);
 
       let settled = false;
       this.connectTimeoutTimer = setTimeout(() => {
@@ -85,6 +89,7 @@ export class RelayConnection {
           this.isConnecting = false;
           this.ws = ws;
           this.startHeartbeat();
+          this.startNetworkMonitor();
           resolve(msg.sessionId);
         } else if (msg.type === 'pairing.wait') {
           console.log(`\n  Open this URL to link your agent:\n`);
@@ -253,7 +258,7 @@ export class RelayConnection {
   private async reconnectWithToken(): Promise<string> {
     this.isConnecting = true;
     const url = `${this.relayUrl}?token=${encodeURIComponent(this.apiToken!)}`;
-    const ws = new WebSocket(url);
+    const ws = this.createWebSocket(url);
 
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
@@ -276,6 +281,7 @@ export class RelayConnection {
           this.ws = ws;
           this.isConnecting = false;
           this.startHeartbeat();
+          this.startNetworkMonitor();
           this.setupMessageHandlers(ws);
           resolve(msg.sessionId);
         }
@@ -337,6 +343,7 @@ export class RelayConnection {
     this.stopHeartbeat();
     this.clearPongTimeout();
     this.cleanupAllWebRTC();
+    this.stopNetworkMonitor();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -450,6 +457,55 @@ export class RelayConnection {
     }
     this.webrtcClients.clear();
     this.connectedClients.clear();
+  }
+
+  private createWebSocket(url: string): WebSocket {
+    const parsedUrl = new URL(url);
+    const isSecure = parsedUrl.protocol === 'wss:';
+    return new WebSocket(url, {
+      createConnection: (options: net.NetConnectOpts, callback?: () => void) => {
+        const socket = isSecure
+          ? tls.connect({ ...options, servername: parsedUrl.hostname } as tls.ConnectionOptions, callback)
+          : net.connect(options, callback);
+        socket.setKeepAlive(true, 10_000);
+        return socket;
+      },
+    } as WebSocket.ClientOptions);
+  }
+
+  private startNetworkMonitor(): void {
+    if (this.networkMonitor) return;
+    try {
+      const hostname = new URL(this.relayUrl).hostname;
+      this.networkMonitor = new NetworkMonitor(hostname);
+      this.networkMonitor.on('network-change', () => this.handleNetworkChange());
+      this.networkMonitor.start();
+    } catch {
+      // URL parse failure — skip monitoring
+    }
+  }
+
+  private stopNetworkMonitor(): void {
+    if (this.networkMonitor) {
+      this.networkMonitor.stop();
+      this.networkMonitor = null;
+    }
+  }
+
+  private handleNetworkChange(): void {
+    console.log('[agent] Network change detected, reconnecting...');
+    this.reconnectDelay = 3000;
+
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.forceClose();
+      return;
+    }
+
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+      this.scheduleReconnect();
+    }
   }
 
   private reconnectDelay = 3000;

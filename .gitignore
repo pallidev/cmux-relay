@@ -16,6 +16,7 @@ package-lock.json
 
 # IDE / AI tool configs
 .claude/
+.superpowers/
 .agents/
 .continue/
 .junie/

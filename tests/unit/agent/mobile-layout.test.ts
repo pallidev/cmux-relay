@@ -123,17 +123,32 @@ describe('MobileLayout component', () => {
   });
 
   it('Layout (desktop local) restores workspace from localStorage', () => {
-    assert.ok(layoutSource.includes("localStorage.getItem('cmux-relay-last-workspace')"),
-      'Should initialize selectedWorkspaceId from localStorage');
-    assert.ok(layoutSource.includes("localStorage.setItem('cmux-relay-last-workspace'"),
-      'Should persist workspace to localStorage');
+    const workspaceHookSource = readFileSync(resolve(root, 'packages/web/src/hooks/useWorkspaceSelection.ts'), 'utf-8');
+    // Layout uses useWorkspaceSelection hook
+    assert.ok(
+      layoutSource.includes('useWorkspaceSelection'),
+      'Layout should import useWorkspaceSelection hook',
+    );
+    assert.ok(workspaceHookSource.includes("const STORAGE_KEY = 'cmux-relay-last-workspace'"),
+      'Hook should define the workspace storage key constant');
+    assert.ok(workspaceHookSource.includes('localStorage.getItem(STORAGE_KEY)'),
+      'Hook should initialize selectedWorkspaceId from localStorage');
+    assert.ok(workspaceHookSource.includes('localStorage.setItem(STORAGE_KEY'),
+      'Hook should persist workspace to localStorage');
   });
 
   it('RelaySessionLayout (desktop cloud) restores workspace from localStorage', () => {
-    assert.ok(relaySource.includes("localStorage.getItem('cmux-relay-last-workspace')"),
-      'Should initialize selectedWorkspaceId from localStorage');
-    assert.ok(relaySource.includes("localStorage.setItem('cmux-relay-last-workspace'"),
-      'Should persist workspace to localStorage');
+    const workspaceHookSource = readFileSync(resolve(root, 'packages/web/src/hooks/useWorkspaceSelection.ts'), 'utf-8');
+    assert.ok(
+      relaySource.includes('useWorkspaceSelection'),
+      'RelaySessionLayout should import useWorkspaceSelection hook',
+    );
+    assert.ok(workspaceHookSource.includes("const STORAGE_KEY = 'cmux-relay-last-workspace'"),
+      'Hook should define the workspace storage key constant');
+    assert.ok(workspaceHookSource.includes('localStorage.getItem(STORAGE_KEY)'),
+      'Hook should initialize selectedWorkspaceId from localStorage');
+    assert.ok(workspaceHookSource.includes('localStorage.setItem(STORAGE_KEY'),
+      'Hook should persist workspace to localStorage');
   });
 
   it('MobileLayout always calls selectSurface on data arrival', () => {

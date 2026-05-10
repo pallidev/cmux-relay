@@ -1,6 +1,7 @@
 import { SessionStore } from './session-store.js';
 import type { IInputHandler } from './input-handler.js';
 import type { CmuxClient } from './cmux-client.js';
+import { readTerminalAndSend } from './terminal-reader.js';
 import type { ClientOutgoing, RelayToClient } from '@cmux-relay/shared';
 import { decodeMessage } from '@cmux-relay/shared';
 
@@ -62,18 +63,7 @@ export async function handleClientMessage(
           payload: { surfaces: deps.store.getSurfacesForWorkspace(surface.workspaceId) },
         });
         if (surface.type === 'terminal' && deps.cmux) {
-          try {
-            const text = await deps.cmux.readTerminalText(msg.surfaceId, false);
-            if (text) {
-              send({
-                type: 'output',
-                surfaceId: msg.surfaceId,
-                payload: { data: Buffer.from(text).toString('base64') },
-              });
-            }
-          } catch {
-            // surface may have been closed
-          }
+          await readTerminalAndSend(deps.cmux, msg.surfaceId, send, { scrollback: false });
         }
       }
       break;
@@ -84,19 +74,7 @@ export async function handleClientMessage(
       if (deps.cmux) {
         const surface = deps.store.getSurface(msg.surfaceId);
         if (surface?.type === 'terminal') {
-          await new Promise(r => setTimeout(r, 50));
-          try {
-            const text = await deps.cmux.readTerminalText(msg.surfaceId);
-            if (text) {
-              send({
-                type: 'output',
-                surfaceId: msg.surfaceId,
-                payload: { data: Buffer.from(text).toString('base64') },
-              });
-            }
-          } catch {
-            // ignore
-          }
+          await readTerminalAndSend(deps.cmux, msg.surfaceId, send, { delay: 50 });
         }
       }
       break;

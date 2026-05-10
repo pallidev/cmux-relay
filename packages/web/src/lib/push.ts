@@ -1,3 +1,5 @@
+import { getJwtFromBrowser } from '../hooks/useAuth';
+
 const DB_NAME = 'cmux-relay-sw';
 const DB_VERSION = 1;
 const NAV_STORE = 'pending-nav';
@@ -150,8 +152,7 @@ export async function unsubscribePush(): Promise<void> {
 }
 
 function getJwt(): string | null {
-  const match = document.cookie.match(/(?:^|;\s*)relay_jwt=([^;]+)/);
-  return match ? match[1] : localStorage.getItem('cmux-relay-token') ?? null;
+  return getJwtFromBrowser() ?? localStorage.getItem('cmux-relay-token') ?? null;
 }
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {

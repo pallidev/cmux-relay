@@ -7,6 +7,7 @@ import { join, extname } from 'node:path';
 import { readFile, stat } from 'node:fs/promises';
 import { SessionStore } from './session-store.js';
 import { verifyToken, generateClientToken } from './auth.js';
+import { readTerminalAndSend } from './terminal-reader.js';
 import type { IInputHandler } from './input-handler.js';
 import type { CmuxClient } from './cmux-client.js';
 import {
@@ -253,18 +254,7 @@ async function handleClientMessage(
         });
         // Send current terminal content (visible screen only — scrollback is too large for mobile)
         if (surface.type === 'terminal' && deps.cmux) {
-          try {
-            const text = await deps.cmux.readTerminalText(msg.surfaceId, false);
-            if (text) {
-              send(ws, {
-                type: 'output',
-                surfaceId: msg.surfaceId,
-                payload: { data: Buffer.from(text).toString('base64') },
-              });
-            }
-          } catch {
-            // surface may have been closed
-          }
+          await readTerminalAndSend(deps.cmux, msg.surfaceId, (m) => send(ws, m), { scrollback: false });
         }
       }
       break;
@@ -277,20 +267,7 @@ async function handleClientMessage(
       if (deps.cmux) {
         const surface = deps.store.getSurface(msg.surfaceId);
         if (surface?.type === 'terminal') {
-          await new Promise(r => setTimeout(r, 50));
-          try {
-            const text = await deps.cmux.readTerminalText(msg.surfaceId);
-            if (text) {
-              const b64 = Buffer.from(text).toString('base64');
-              send(ws, {
-                type: 'output',
-                surfaceId: msg.surfaceId,
-                payload: { data: b64 },
-              });
-            }
-          } catch (err) {
-            console.error('Failed to read terminal after input:', err);
-          }
+          await readTerminalAndSend(deps.cmux, msg.surfaceId, (m) => send(ws, m), { delay: 50 });
         }
       }
       break;

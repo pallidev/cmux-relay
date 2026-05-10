@@ -1,13 +1,86 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type Database from 'better-sqlite3';
-import { createSessionJwt, verifySessionJwt } from './auth.js';
-import { createApiToken, deleteApiToken, listApiTokens, upsertPushSubscription, deletePushSubscription } from './db.js';
-import { getAuthorizationUrl, handleCallback } from './github-oauth.js';
 import type { SessionRegistry } from './session-registry.js';
 import type { PairingRegistry } from './pairing-registry.js';
+import {
+  type RouteContext,
+  authenticateRequest,
+  handleGithubAuth,
+  handleGithubCallback,
+  handleVapidKey,
+  handlePairInfo,
+  handlePairApprove,
+  handlePairReject,
+  handleAuthMe,
+  handleListTokens,
+  handleCreateToken,
+  handleDeleteToken,
+  handleListSessions,
+  handlePushSubscribe,
+  handlePushUnsubscribe,
+} from './routes.js';
 
-const WEB_URL = process.env.WEB_URL || 'https://cmux.gateway.myaddr.io';
-const STATES = new Map<string, { expires: number; pairingCode?: string }>();
+export { authenticateRequest, readBody } from './routes.js';
+
+type RouteHandler = (ctx: RouteContext) => Promise<void>;
+
+interface Route {
+  method: string;
+  pattern: string;
+  params: string[];
+  handler: RouteHandler;
+  auth: 'none' | 'optional' | 'required';
+}
+
+const ROUTES: Route[] = [
+  // Public routes (no auth needed)
+  { method: 'GET', pattern: '/api/auth/github', params: [], handler: handleGithubAuth, auth: 'none' },
+  { method: 'GET', pattern: '/api/auth/github/callback', params: [], handler: handleGithubCallback, auth: 'none' },
+  { method: 'GET', pattern: '/api/push/vapid-key', params: [], handler: handleVapidKey, auth: 'none' },
+  { method: 'GET', pattern: '/api/pair/:code', params: ['code'], handler: handlePairInfo, auth: 'none' },
+
+  // Pairing action routes (auth checked internally by handler)
+  { method: 'POST', pattern: '/api/pair/:code/approve', params: ['code'], handler: handlePairApprove, auth: 'optional' },
+  { method: 'POST', pattern: '/api/pair/:code/reject', params: ['code'], handler: handlePairReject, auth: 'optional' },
+
+  // Authenticated routes
+  { method: 'GET', pattern: '/api/auth/me', params: [], handler: handleAuthMe, auth: 'required' },
+  { method: 'GET', pattern: '/api/tokens', params: [], handler: handleListTokens, auth: 'required' },
+  { method: 'POST', pattern: '/api/tokens', params: [], handler: handleCreateToken, auth: 'required' },
+  { method: 'DELETE', pattern: '/api/tokens/:id', params: ['id'], handler: handleDeleteToken, auth: 'required' },
+  { method: 'GET', pattern: '/api/sessions', params: [], handler: handleListSessions, auth: 'required' },
+  { method: 'POST', pattern: '/api/push/subscribe', params: [], handler: handlePushSubscribe, auth: 'required' },
+  { method: 'DELETE', pattern: '/api/push/subscribe', params: [], handler: handlePushUnsubscribe, auth: 'required' },
+];
+
+function matchRoute(path: string, method: string): { route: Route; params: Record<string, string> } | null {
+  for (const route of ROUTES) {
+    if (route.method !== method) continue;
+
+    const routeParts = route.pattern.split('/');
+    const pathParts = path.split('/');
+
+    if (routeParts.length !== pathParts.length) continue;
+
+    const params: Record<string, string> = {};
+    let match = true;
+
+    for (let i = 0; i < routeParts.length; i++) {
+      if (routeParts[i].startsWith(':')) {
+        params[routeParts[i].slice(1)] = decodeURIComponent(pathParts[i]);
+      } else if (routeParts[i] !== pathParts[i]) {
+        match = false;
+        break;
+      }
+    }
+
+    if (match) {
+      return { route, params };
+    }
+  }
+
+  return null;
+}
 
 export async function handleHttpRequest(
   req: IncomingMessage,
@@ -18,194 +91,52 @@ export async function handleHttpRequest(
 ): Promise<void> {
   const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
   const path = url.pathname;
+  const method = req.method ?? 'GET';
 
-  if (path === '/api/auth/github' && req.method === 'GET') {
-    const pairingCode = url.searchParams.get('pair') || undefined;
-    const { url: authUrl, state } = getAuthorizationUrl();
-    STATES.set(state, { expires: Date.now() + 10 * 60 * 1000, pairingCode });
-    setTimeout(() => STATES.delete(state), 10 * 60 * 1000);
-    res.writeHead(302, { Location: authUrl.toString() });
-    res.end();
-    return;
-  }
+  const matched = matchRoute(path, method);
 
-  if (path === '/api/auth/github/callback' && req.method === 'GET') {
-    const code = url.searchParams.get('code');
-    const state = url.searchParams.get('state');
-    if (!code || !state) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Invalid OAuth callback' }));
-      return;
-    }
-
-    const stateData = STATES.get(state);
-    if (!stateData) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Invalid OAuth state' }));
-      return;
-    }
-    STATES.delete(state);
-
-    const user = await handleCallback(db, code);
-    const jwt = await createSessionJwt(user.id, user.username);
-    console.log(`[relay] OAuth callback success: user=${user.username}`);
-
-    const redirectTo = stateData.pairingCode
-      ? `${WEB_URL}/pair/${stateData.pairingCode}`
-      : `${WEB_URL}/`;
-
-    res.writeHead(302, {
-      Location: redirectTo,
-      'Set-Cookie': `relay_jwt=${jwt}; Path=/; SameSite=Lax; Max-Age=${30 * 24 * 60 * 60}`,
-    });
-    res.end();
-    return;
-  }
-
-  // Push VAPID public key (public, no auth required)
-  if (path === '/api/push/vapid-key' && req.method === 'GET') {
-    const vapidPublicKey = process.env.VAPID_PUBLIC_KEY_CACHE;
-    if (!vapidPublicKey) {
-      res.writeHead(503, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Push not configured' }));
-      return;
-    }
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ publicKey: vapidPublicKey }));
-    return;
-  }
-
-  // Pairing endpoints (public)
-  if (path.startsWith('/api/pair/') && req.method === 'GET') {
-    const pairCode = path.slice('/api/pair/'.length);
-    const info = pairing.getPairingInfo(pairCode);
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(info));
-    return;
-  }
-
-  if (path.startsWith('/api/pair/') && path.endsWith('/approve') && req.method === 'POST') {
+  if (!matched) {
+    // Preserve original behavior: unmatched routes get 401 if not authenticated,
+    // 404 if authenticated. This matches the original if/else chain where the
+    // global auth guard runs before the final 404.
     const user = await authenticateRequest(req);
     if (!user) {
       res.writeHead(401, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Unauthorized' }));
       return;
     }
-
-    const pairCode = path.slice('/api/pair/'.length, -'/approve'.length);
-    const approved = pairing.approvePairing(pairCode, user.sub, db);
-    res.writeHead(approved ? 200 : 404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(approved ? { ok: true } : { error: 'Pairing not found' }));
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Not found' }));
     return;
   }
 
-  if (path.startsWith('/api/pair/') && path.endsWith('/reject') && req.method === 'POST') {
-    const user = await authenticateRequest(req);
+  const { route, params } = matched;
+
+  // Resolve authentication based on route requirements
+  let user: { sub: string; username: string } | null = null;
+
+  if (route.auth === 'required') {
+    user = await authenticateRequest(req);
     if (!user) {
       res.writeHead(401, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Unauthorized' }));
       return;
     }
-
-    const pairCode = path.slice('/api/pair/'.length, -'/reject'.length);
-    const rejected = pairing.rejectPairing(pairCode);
-    res.writeHead(rejected ? 200 : 404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(rejected ? { ok: true } : { error: 'Pairing not found' }));
-    return;
+  } else if (route.auth === 'optional') {
+    // Try to authenticate but don't reject; handler checks internally
+    user = await authenticateRequest(req);
   }
+  // auth === 'none': user stays null
 
-  const user = await authenticateRequest(req);
-  if (!user) {
-    res.writeHead(401, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Unauthorized' }));
-    return;
-  }
+  const ctx: RouteContext = {
+    req,
+    res,
+    params,
+    user,
+    db,
+    registry,
+    pairing,
+  };
 
-  if (path === '/api/auth/me' && req.method === 'GET') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ userId: user.sub, username: user.username }));
-    return;
-  }
-
-  if (path === '/api/tokens' && req.method === 'GET') {
-    const tokens = listApiTokens(db, user.sub);
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(tokens));
-    return;
-  }
-
-  if (path === '/api/tokens' && req.method === 'POST') {
-    const body = await readBody(req);
-    const parsed = JSON.parse(body) as { name?: string };
-    const token = createApiToken(db, user.sub, parsed.name);
-    res.writeHead(201, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ token }));
-    return;
-  }
-
-  if (path.startsWith('/api/tokens/') && req.method === 'DELETE') {
-    const tokenId = path.slice('/api/tokens/'.length);
-    const deleted = deleteApiToken(db, user.sub, tokenId);
-    res.writeHead(deleted ? 200 : 404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(deleted ? { ok: true } : { error: 'Not found' }));
-    return;
-  }
-
-  if (path === '/api/sessions' && req.method === 'GET') {
-    const sessions = registry.getSessionsForUser(user.sub);
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(sessions));
-    return;
-  }
-
-  if (path === '/api/push/subscribe' && req.method === 'POST') {
-    const body = await readBody(req);
-    const parsed = JSON.parse(body) as { endpoint: string; keys: { p256dh: string; auth: string } };
-    if (!parsed.endpoint || !parsed.keys?.p256dh || !parsed.keys?.auth) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Invalid subscription' }));
-      return;
-    }
-    const userAgent = req.headers['user-agent'] || undefined;
-    upsertPushSubscription(db, user.sub, parsed.endpoint, parsed.keys.p256dh, parsed.keys.auth, userAgent);
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true }));
-    return;
-  }
-
-  if (path === '/api/push/subscribe' && req.method === 'DELETE') {
-    const body = await readBody(req);
-    const parsed = JSON.parse(body) as { endpoint: string };
-    const deleted = deletePushSubscription(db, user.sub, parsed.endpoint);
-    res.writeHead(deleted ? 200 : 404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(deleted ? { ok: true } : { error: 'Not found' }));
-    return;
-  }
-
-  res.writeHead(404, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ error: 'Not found' }));
-}
-
-async function authenticateRequest(req: IncomingMessage): Promise<{ sub: string; username: string } | null> {
-  const cookieHeader = req.headers.cookie ?? '';
-  const match = cookieHeader.match(/(?:^|;\s*)relay_jwt=([^;]+)/);
-  if (match) {
-    return verifySessionJwt(match[1]);
-  }
-
-  const authHeader = req.headers.authorization;
-  if (authHeader?.startsWith('Bearer ')) {
-    return verifySessionJwt(authHeader.slice(7));
-  }
-
-  return null;
-}
-
-function readBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    req.on('data', (chunk) => chunks.push(chunk));
-    req.on('end', () => resolve(Buffer.concat(chunks).toString()));
-    req.on('error', reject);
-  });
+  await route.handler(ctx);
 }

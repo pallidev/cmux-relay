@@ -1,7 +1,7 @@
 import { WebSocket } from 'ws';
 import type { IncomingMessage } from 'node:http';
 import type Database from 'better-sqlite3';
-import type { AgentOutgoing, RelayToAgent, ClientOutgoing, RelayToClient } from '@cmux-relay/shared';
+import type { AgentOutgoing, RelayToAgent, ClientOutgoing, RelayToClient, RelayNotificationsMessage } from '@cmux-relay/shared';
 import { encodeMessage, decodeMessage } from '@cmux-relay/shared';
 import { randomBytes } from 'node:crypto';
 import { sendPushToUser } from './push-sender.js';
@@ -117,7 +117,7 @@ export class SessionRegistry {
         }
       } else {
         const clientCount = session.clients.filter(c => c.ws.readyState === WebSocket.OPEN).length;
-        console.log(`[relay] Forwarding ${(msg.payload as any).type} to ${clientCount} clients (session=${sessionId})`);
+        console.log(`[relay] Forwarding ${msg.payload.type} to ${clientCount} clients (session=${sessionId})`);
         for (const client of session.clients) {
           if (client.ws.readyState === WebSocket.OPEN) {
             client.ws.send(payload);
@@ -125,8 +125,9 @@ export class SessionRegistry {
         }
 
         // Send push when no WebSocket clients connected
-        if (clientCount === 0 && this.db && (msg.payload as any).type === 'notifications') {
-          const notifs = (msg.payload as any).payload?.notifications as Array<{ title: string; subtitle: string; body: string; workspaceId?: string; surfaceId?: string }>;
+        if (clientCount === 0 && this.db && msg.payload.type === 'notifications') {
+          const notifPayload = msg.payload as RelayNotificationsMessage;
+          const notifs = notifPayload.payload?.notifications;
           if (notifs && notifs.length > 0) {
             for (const n of notifs) {
               sendPushToUser(this.db, session.userId, {

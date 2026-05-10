@@ -54,8 +54,8 @@ export class WebRTCTransport {
     }
     try {
       this.pc.setRemoteDescription(sdp, 'answer');
-    } catch (err: any) {
-      console.warn(`[webrtc] Failed to set remote answer: ${err.message}`);
+    } catch (err: unknown) {
+      console.warn(`[webrtc] Failed to set remote answer: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 

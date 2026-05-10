@@ -1,8 +1,11 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useRelay } from '../hooks/useRelay';
+import { useNotificationToasts } from '../hooks/useNotifications';
 import { Terminal, writeToTerminal } from './Terminal';
 import { ConnectionOverlay } from './ConnectionOverlay';
-import { getRelayWsUrl, getToastType } from '../lib/helpers';
+import { StatusBar } from './StatusBar';
+import { ToastContainer } from './ToastContainer';
+import { getRelayWsUrl } from '../lib/helpers';
 import { registerServiceWorker, subscribePush, getPendingNavigation, onNavigateFromPush } from '../lib/push';
 import type { CmuxNotification } from '@cmux-relay/shared';
 
@@ -70,8 +73,8 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
     onNotifications,
   } = useRelay(relayUrl ? { url: relayUrl, e2eEnabled: true } : { url: '' });
 
-  const [toasts, setToasts] = useState<CmuxNotification[]>([]);
-  const prevNotifCount = useRef(0);
+  const { toasts, dismissToast } = useNotificationToasts({ notifications });
+
   const userSelectedRef = useRef(false);
   const activeSurfaceIdRef = useRef<string | null>(null);
   const pendingBrowserNotifs = useRef<CmuxNotification[]>([]);
@@ -99,8 +102,8 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
   }, []));
 
   // Browser notification + push subscription
-  const [notifPermission, setNotifPermission] = useState(() =>
-    typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'
+  const [notifPermission, setNotifPermission] = useState<'default' | 'granted' | 'denied' | 'unsupported'>(() =>
+    typeof Notification !== 'undefined' ? Notification.permission as 'default' | 'granted' | 'denied' : 'unsupported'
   );
   const pushInitialized = useRef(false);
 
@@ -191,20 +194,6 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
       }
     }
   }, []));
-
-  // Show in-app toast when new notifications arrive
-  useEffect(() => {
-    if (notifications.length <= prevNotifCount.current) {
-      prevNotifCount.current = notifications.length;
-      return;
-    }
-    const newNotifs = notifications.slice(0, notifications.length - prevNotifCount.current);
-    prevNotifCount.current = notifications.length;
-    setToasts(prev => [...prev, ...newNotifs]);
-    setTimeout(() => {
-      setToasts(prev => prev.length > newNotifs.length ? prev.slice(newNotifs.length) : []);
-    }, 5000);
-  }, [notifications]);
 
   // Auto-select first workspace when data arrives (only if no saved state)
   useEffect(() => {
@@ -331,10 +320,6 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
     }
   };
 
-  const dismissToast = (i: number) => {
-    setToasts(prev => prev.filter((_, idx) => idx !== i));
-  };
-
   const clickToast = (n: CmuxNotification, i: number) => {
     if (n.workspaceId) setSelectedWorkspaceId(n.workspaceId);
     if (n.surfaceId) {
@@ -353,44 +338,24 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
   return (
     <>
       <div className="mobile-app" style={{ height: `${appHeight}px` }}>
-        {/* Header */}
-        <header className="mobile-header">
-          <button
-            className="mobile-nav-btn"
-            onClick={() => goWorkspace(-1)}
-            disabled={wsIndex <= 0}
-          >
-            &#8249;
-          </button>
-          <span className="status">
-            <span className={`status-dot ${status}`} />
-            <span className="status-text">
-              {status === 'connected' ? (p2pStatus === 'attempting' ? 'P2P 연결 시도 중...' : '') :
-               phase === 'reconnecting' ? `재연결 (${Math.ceil(reconnectDelay / 1000)}s)` :
-               phase === 'connecting' ? 'WebSocket 연결 중...' :
-               phase === 'waiting-agent' ? 'Agent 대기...' :
-               status === 'disconnected' ? '연결 끊김' : '연결 중...'}
-            </span>
-          </span>
-		          <span className={`transport-badge ${transport}`}>{transport === 'p2p' ? 'P2P' : 'Relay'}</span>
-          <span className="mobile-header-title">
-            {currentWs?.title || 'cmux-relay'}
-          </span>
-          <span className="mobile-ws-counter">
-            {wsIndex >= 0 ? `${wsIndex + 1}/${workspaces.length}` : ''}
-          </span>
-          <button
-            className="mobile-nav-btn"
-            onClick={() => goWorkspace(1)}
-            disabled={wsIndex < 0 || wsIndex >= workspaces.length - 1}
-          >
-            &#8250;
-          </button>
-          <a href="/" className="dashboard-btn" title="Dashboard">&#x2302;</a>
-          {notifPermission === 'default' && (
-            <button className="mobile-nav-btn notif-enable-btn" onClick={handleEnableNotifications} title="Enable notifications">&#x1F514;</button>
-          )}
-        </header>
+        <StatusBar
+          status={status}
+          phase={phase}
+          reconnectDelay={reconnectDelay}
+          p2pStatus={p2pStatus}
+          transport={transport}
+          title={currentWs?.title || 'cmux-relay'}
+          notifications={notifications}
+          onToggleNotifications={() => {}}
+          onPrevWorkspace={() => goWorkspace(-1)}
+          onNextWorkspace={() => goWorkspace(1)}
+          prevDisabled={wsIndex <= 0}
+          nextDisabled={wsIndex < 0 || wsIndex >= workspaces.length - 1}
+          wsCounter={wsIndex >= 0 ? `${wsIndex + 1}/${workspaces.length}` : ''}
+          showDashboard
+          notifPermission={notifPermission}
+          onEnableNotifications={handleEnableNotifications}
+        />
 
         {/* Tab bar: surfaces in current workspace */}
         {wsSurfaces.length > 1 && (
@@ -434,38 +399,11 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
         </div>
       </div>
 
-      {/* Toast notifications */}
-      {toasts.length > 0 && (
-        <div className="toast-container">
-          {toasts.map((n, i) => {
-            const toastType = getToastType(n);
-            return (
-              <div
-                key={`${n.id}-${i}`}
-                className={`toast toast-${toastType}`}
-                onClick={() => clickToast(n, i)}
-              >
-                <span className="toast-icon">
-                  {n.title.toLowerCase().includes('claude') ? '\uD83E\uDD16' : '\uD83D\uDD14'}
-                </span>
-                <div className="toast-content">
-                  <div className="toast-title">{n.title}</div>
-                  {n.subtitle && <div className="toast-sub">{n.subtitle}</div>}
-                  {n.body && <div className="toast-body">{n.body}</div>}
-                </div>
-                <button
-                  className="toast-close"
-                  onClick={(e) => { e.stopPropagation(); dismissToast(i); }}
-                  aria-label="Dismiss"
-                >
-                  &times;
-                </button>
-                <div className="toast-progress" />
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <ToastContainer
+        toasts={toasts}
+        onDismiss={dismissToast}
+        onClick={clickToast}
+      />
     </>
   );
 }

@@ -4,6 +4,7 @@ import { LoginPage } from './components/LoginPage';
 import { PairPage } from './components/PairPage';
 import { Layout } from './components/Layout';
 import { InstallBanner } from './components/InstallBanner';
+import { getJwtFromBrowser } from './hooks/useAuth';
 import { useState, useEffect, useCallback } from 'react';
 
 function getPairCodeFromPath(): string | null {
@@ -41,10 +42,7 @@ export default function App() {
 }
 
 function TerminalPage() {
-  const [jwt] = useState<string | null>(() => {
-    const match = document.cookie.match(/(?:^|;\s*)relay_jwt=([^;]+)/);
-    return match ? match[1] : null;
-  });
+  const [jwt] = useState<string | null>(() => getJwtFromBrowser());
   const [sessionId, setSessionId] = useState<string | null>(() => {
     return localStorage.getItem('cmux-session-id');
   });
@@ -88,10 +86,7 @@ function TerminalPage() {
 }
 
 function HomePage() {
-  const [jwt, setJwt] = useState<string | null>(() => {
-    const match = document.cookie.match(/(?:^|;\s*)relay_jwt=([^;]+)/);
-    return match ? match[1] : null;
-  });
+  const [jwt, setJwt] = useState<string | null>(() => getJwtFromBrowser());
   const { isLocal } = useLocalMode();
 
   if (!jwt) return <LoginPage />;

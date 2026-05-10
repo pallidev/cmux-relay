@@ -1,8 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+}
+
 function isStandalone(): boolean {
   return window.matchMedia('(display-mode: standalone)').matches
-    || (navigator as any).standalone === true;
+    || (navigator as { standalone?: boolean }).standalone === true;
 }
 
 function isIOS(): boolean {
@@ -22,7 +27,7 @@ export function InstallBanner() {
   const [visible, setVisible] = useState(false);
   const [iosMode, setIosMode] = useState(false);
   const [hasNativePrompt, setHasNativePrompt] = useState(false);
-  const deferredPromptRef = useRef<any>(null);
+  const deferredPromptRef = useRef<BeforeInstallPromptEvent | null>(null);
   const prompted = useRef(false);
 
   useEffect(() => {
@@ -44,7 +49,7 @@ export function InstallBanner() {
         // Listen for Chrome's native install prompt
         const handler = (e: Event) => {
           e.preventDefault();
-          deferredPromptRef.current = e;
+          deferredPromptRef.current = e as BeforeInstallPromptEvent;
           setHasNativePrompt(true);
           setVisible(true);
           prompted.current = true;

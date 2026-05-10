@@ -161,6 +161,7 @@ export function useWebSocket(
       const oldWs = wsRef.current;
       wsRef.current = null;
       if (oldWs) { oldWs.onclose = null; oldWs.close(); }
+      cb.onClose();
       cb.updatePhase('reconnecting');
       cb.setReconnectDelay(delay);
       cb.setE2eReady(false);
@@ -204,6 +205,7 @@ export function useWebSocket(
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('online', onOnline);
       document.removeEventListener('resume', onResume);
+      cb.onClose();
       wsRef.current?.close();
       wsRef.current = null;
     };

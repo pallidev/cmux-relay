@@ -47,6 +47,7 @@ function TerminalPage() {
     return localStorage.getItem('cmux-session-id');
   });
   const [loading, setLoading] = useState(true);
+  const [retryCount, setRetryCount] = useState(0);
 
   const fetchSession = useCallback(() => {
     if (!jwt) return;
@@ -58,6 +59,7 @@ function TerminalPage() {
           const id = sessions[0].sessionId;
           localStorage.setItem('cmux-session-id', id);
           setSessionId(id);
+          setRetryCount(0);
         } else {
           localStorage.removeItem('cmux-session-id');
           setSessionId(null);
@@ -72,9 +74,21 @@ function TerminalPage() {
     fetchSession();
   }, [jwt, fetchSession]);
 
-  const handleDisconnect = () => {
-    setTimeout(fetchSession, 2000);
-  };
+  const handleDisconnect = useCallback(() => {
+    // Don't immediately refetch — give the server time to update
+    // Only retry up to 3 times before redirecting to dashboard
+    setRetryCount(prev => {
+      const next = prev + 1;
+      if (next > 3) {
+        // Too many retries — go back to dashboard
+        localStorage.removeItem('cmux-session-id');
+        window.location.href = '/';
+        return prev;
+      }
+      setTimeout(fetchSession, 3000);
+      return next;
+    });
+  }, [fetchSession]);
 
   if (!jwt) return <LoginPage />;
   if (loading) return null;

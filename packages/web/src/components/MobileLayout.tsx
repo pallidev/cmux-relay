@@ -81,9 +81,18 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
   const swRegRef = useRef<ServiceWorkerRegistration | null>(null);
 
   // Notify parent only if still disconnected after a grace period (auto-reconnect handles it)
+  // But don't trigger on permanent errors (those show their own UI)
   const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (status === 'disconnected' && !disconnectTimerRef.current) {
+    if (phase === 'error') {
+      // Permanent error — don't trigger disconnect loop, show error UI instead
+      if (disconnectTimerRef.current) {
+        clearTimeout(disconnectTimerRef.current);
+        disconnectTimerRef.current = null;
+      }
+      return;
+    }
+    if (status === 'disconnected' && phase === 'reconnecting' && !disconnectTimerRef.current) {
       disconnectTimerRef.current = setTimeout(() => {
         onDisconnect?.();
         disconnectTimerRef.current = null;
@@ -92,7 +101,7 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
       clearTimeout(disconnectTimerRef.current);
       disconnectTimerRef.current = null;
     }
-  }, [status, onDisconnect]);
+  }, [status, phase, onDisconnect]);
 
   // Only process output for the selected surface
   onOutput(useCallback((surfaceId: string, data: string) => {

@@ -64,8 +64,12 @@ function RelaySessionInner({ wsUrl, onDisconnect }: { wsUrl: string; onDisconnec
   const { toasts, dismissToast } = useNotificationToasts({ notifications });
 
   useEffect(() => {
-    if (status === 'disconnected') onDisconnect?.();
-  }, [status, onDisconnect]);
+    // Only trigger disconnect callback for transient disconnections during active use,
+    // not for permanent errors (those show their own UI with retry button)
+    if (status === 'disconnected' && phase === 'reconnecting') {
+      onDisconnect?.();
+    }
+  }, [status, phase, onDisconnect]);
 
   onOutput(useCallback((surfaceId: string, data: string) => {
     writeToTerminal(surfaceId, data);

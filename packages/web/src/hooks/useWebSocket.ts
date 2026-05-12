@@ -48,9 +48,11 @@ export function useWebSocket(
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let reconnectDelay = 1000;
     let consecutiveTimeouts = 0;
+    let consecutiveErrors = 0;
     let hiddenAt = 0;
     let pingTimer: ReturnType<typeof setInterval> | null = null;
     let pongTimer: ReturnType<typeof setTimeout> | null = null;
+    const MAX_RECONNECT_ATTEMPTS = 30;
 
     const connect = async () => {
       if (disposed || isConnecting) return;
@@ -70,6 +72,7 @@ export function useWebSocket(
       ws.onopen = () => {
         if (disposed) return;
         isConnecting = false;
+        consecutiveErrors = 0;
         reconnectDelay = 1000;
         cb.updatePhase('waiting-agent');
         cb.setErrorMessage(null);
@@ -84,11 +87,20 @@ export function useWebSocket(
         cb.connectionTimeoutRef.current = setTimeout(() => {
           if (cb.phaseRef.current !== 'connected' && !disposed) {
             consecutiveTimeouts++;
-            const delay = Math.min(300 * Math.pow(2, Math.min(consecutiveTimeouts - 1, 5)), 30_000);
+            if (consecutiveTimeouts >= 5) {
+              console.error(`[relay] Agent not responding after ${consecutiveTimeouts} timeouts — giving up`);
+              cb.updatePhase('error');
+              cb.setErrorMessage('Agent가 응답하지 않습니다. Agent가 실행 중인지 확인해주세요.');
+              const oldWs = wsRef.current;
+              wsRef.current = null;
+              if (oldWs) { oldWs.onclose = null; oldWs.close(); }
+              return;
+            }
+            const delay = Math.min(2000 * Math.pow(1.5, Math.min(consecutiveTimeouts - 1, 5)), 30_000);
             console.warn(`[relay] Connection timeout (#${consecutiveTimeouts}) — forcing reconnect in ${delay}ms`);
             forceReconnect(delay);
           }
-        }, 15_000);
+        }, 30_000);
 
         if (pingTimer) clearInterval(pingTimer);
         pingTimer = setInterval(() => {
@@ -110,7 +122,10 @@ export function useWebSocket(
         if (pongTimer) { clearTimeout(pongTimer); pongTimer = null; }
         const msg = JSON.parse(event.data as string);
         cb.onMessage(msg);
-        if (msg.type === 'workspaces') consecutiveTimeouts = 0;
+        if (msg.type === 'workspaces') {
+          consecutiveTimeouts = 0;
+          consecutiveErrors = 0;
+        }
       };
 
       ws.onclose = (event) => {
@@ -124,29 +139,59 @@ export function useWebSocket(
           cb.updateHighestPhase(cb.phaseRef.current);
         }
 
+        consecutiveErrors++;
         cb.setReconnectAttempt(prev => prev + 1);
 
-        if (event.code !== 1000) {
-          cb.setReconnectDelay(0);
-          cb.updatePhase('reconnecting');
-          reconnectTimer = setTimeout(connect, 300);
-        } else {
-          cb.setReconnectDelay(reconnectDelay);
-          cb.updatePhase('reconnecting');
-          reconnectTimer = setTimeout(connect, reconnectDelay);
-          reconnectDelay = Math.min(reconnectDelay * 2, 10000);
+        if (consecutiveErrors > MAX_RECONNECT_ATTEMPTS) {
+          console.error(`[relay] Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached — stopping`);
+          cb.updatePhase('error');
+          cb.setErrorMessage('서버에 연결할 수 없습니다. 나중에 다시 시도해주세요.');
+          cb.setE2eReady(false);
+          cb.e2eRef.current = null;
+          cb.onClose();
+          return;
         }
+
+        // Session not found (1008) or auth failure — don't keep retrying
+        if (event.code === 1008) {
+          console.error(`[relay] Server rejected connection (${event.code}): ${event.reason}`);
+          cb.updatePhase('error');
+          cb.setErrorMessage(event.reason || '세션을 찾을 수 없습니다. Agent가 실행 중인지 확인해주세요.');
+          cb.setE2eReady(false);
+          cb.e2eRef.current = null;
+          cb.onClose();
+          return;
+        }
+
+        // Normal close with reason — show error, don't loop
+        if (event.code === 1000 && event.reason) {
+          cb.updatePhase('error');
+          cb.setErrorMessage(event.reason);
+          cb.setE2eReady(false);
+          cb.e2eRef.current = null;
+          cb.onClose();
+          return;
+        }
+
+        const delay = event.code !== 1000
+          ? Math.min(1000 + Math.random() * 1000, reconnectDelay)  // 1-2s initial, then backoff
+          : reconnectDelay;
+
+        cb.setReconnectDelay(delay);
+        cb.updatePhase('reconnecting');
+        reconnectTimer = setTimeout(connect, delay);
+        reconnectDelay = Math.min(reconnectDelay * 1.5, 30000);  // gentler backoff, max 30s
 
         cb.setE2eReady(false);
         cb.e2eRef.current = null;
         cb.onClose();
       };
 
-      ws.onerror = (err: Event) => {
+      ws.onerror = () => {
         if (disposed) return;
         isConnecting = false;
-        cb.updatePhase('error');
-        cb.setErrorMessage((err as ErrorEvent)?.message ?? 'WebSocket error');
+        // Don't set error phase here — onclose will follow and handle reconnection
+        // This prevents the error→close→reconnect flicker
       };
     };
 

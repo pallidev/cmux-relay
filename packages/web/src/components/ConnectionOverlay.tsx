@@ -39,6 +39,7 @@ export function ConnectionOverlay({
 
   const isReconnecting = phase === 'reconnecting';
   const isError = phase === 'error';
+  const isPermanentError = isError && (errorMessage?.includes('세션을 찾을 수') || errorMessage?.includes('연결할 수 없') || errorMessage?.includes('응답하지 않'));
   const accent = isReconnecting ? 'var(--yellow)' : isError ? 'var(--red)' : 'var(--blue)';
   const gradient = isReconnecting
     ? 'linear-gradient(90deg, var(--yellow), var(--peach))'
@@ -97,6 +98,22 @@ export function ConnectionOverlay({
 
         {isReconnecting && reconnectAttempt > 0 && (
           <p className="connection-attempt">시도 {reconnectAttempt}</p>
+        )}
+
+        {isPermanentError && (
+          <button className="connection-retry-btn" onClick={() => window.location.reload()} style={{
+            marginTop: '12px',
+            padding: '8px 20px',
+            background: accent,
+            color: 'var(--bg-base)',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            fontSize: '14px',
+            fontWeight: 600,
+          }}>
+            다시 시도
+          </button>
         )}
       </div>
     </div>

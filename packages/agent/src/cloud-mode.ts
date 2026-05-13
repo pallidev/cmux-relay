@@ -120,7 +120,8 @@ export async function runCloudMode(opts: CliOptions, savedAuth: AuthData | null)
       clientId,
       msgDeps,
       (response) => {
-        relay.send(response);
+        // Send response only to the requesting client
+        relay.sendToClient(clientId, response);
       },
     );
   });

@@ -246,6 +246,11 @@ export class RelayConnection {
     }
   }
 
+  /** Send a message to a specific client by clientId. */
+  sendToClient(clientId: string, payload: RelayToClient): void {
+    this.sendTargeted(clientId, payload);
+  }
+
   private sendBroadcast(payload: RelayToClient): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(encodeMessage({

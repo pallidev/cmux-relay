@@ -71,7 +71,7 @@ export function MobileLayout({ relayWsUrl, onDisconnect, onRetry }: { relayWsUrl
     sendResize,
     onOutput,
     onNotifications,
-  } = useRelay(relayUrl ? { url: relayUrl, e2eEnabled: true } : { url: '' });
+  } = useRelay(relayUrl ? { url: relayUrl, e2eEnabled: true, onSessionExpired: onRetry } : { url: '' });
 
   const { toasts, dismissToast } = useNotificationToasts({ notifications });
 

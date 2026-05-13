@@ -16,9 +16,11 @@ interface UseRelayOptions {
   token?: string;
   sessionId?: string;
   e2eEnabled?: boolean;
+  /** Called when session is rejected (1008) — should fetch new session and remount */
+  onSessionExpired?: () => void;
 }
 
-export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions) {
+export function useRelay({ url, token, sessionId, e2eEnabled, onSessionExpired }: UseRelayOptions) {
   // --- State ---
   const e2eRef = useRef<ClientE2ECrypto | null>(null);
   const [phase, setPhase] = useState<ConnectionPhase>('idle');
@@ -97,6 +99,7 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
       // Always send auth to trigger initial state from agent
       ws.send(JSON.stringify({ type: 'auth', payload: { token: token ?? '' } }));
     },
+    onSessionExpired,
     onMessage: (msg) => {
       if (msg.type === 'webrtc.offer') {
         console.log('[webrtc] Offer received from agent');

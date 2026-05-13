@@ -17,6 +17,8 @@ export interface WebSocketLifecycleCallbacks {
   onMessage: (msg: RelayToClient) => void;
   onOpen: (ws: WebSocket) => void;
   onClose: () => void;
+  /** Called when server rejects with 1008 (session not found / invalid token). */
+  onSessionExpired?: () => void;
 }
 
 const PHASE_ORDER: ConnectionPhase[] = ['connecting', 'waiting-agent', 'connected'];
@@ -159,14 +161,22 @@ export function useWebSocket(
           return;
         }
 
-        // Session not found (1008) or auth failure — don't keep retrying
+        // Session not found (1008) or auth failure — try to get a new session automatically
         if (event.code === 1008) {
-          console.error(`[relay] Server rejected connection (${event.code}): ${event.reason}`);
-          cb.updatePhase('error');
-          cb.setErrorMessage(event.reason || '세션을 찾을 수 없습니다. Agent가 실행 중인지 확인해주세요.');
+          console.warn(`[relay] Session expired (${event.code}): ${event.reason} — fetching new session`);
           cb.setE2eReady(false);
           cb.e2eRef.current = null;
           cb.onClose();
+          // If onSessionExpired is provided, it will re-fetch session and remount with new ID
+          // Otherwise fall back to error state
+          if (cb.onSessionExpired) {
+            cb.updatePhase('reconnecting');
+            cb.setErrorMessage('새 세션 조회 중...');
+            cb.onSessionExpired();
+          } else {
+            cb.updatePhase('error');
+            cb.setErrorMessage(event.reason || '세션을 찾을 수 없습니다. Agent가 실행 중인지 확인해주세요.');
+          }
           return;
         }
 

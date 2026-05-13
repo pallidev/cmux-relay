@@ -53,7 +53,7 @@ function RelaySessionInner({ wsUrl, onDisconnect, onRetry }: { wsUrl: string; on
     sendResize,
     onOutput,
     onNotifications,
-  } = useRelay({ url: wsUrl, e2eEnabled: true });
+  } = useRelay({ url: wsUrl, e2eEnabled: true, onSessionExpired: onRetry });
 
   const {
     selectedWorkspaceId,

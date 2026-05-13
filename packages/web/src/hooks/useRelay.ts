@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import type { WorkspaceInfo, SurfaceInfo, PaneInfo, FrameRect, CmuxNotification, E2EAckMessage } from '@cmux-relay/shared';
+import type { WorkspaceInfo, SurfaceInfo, PaneInfo, FrameRect, CmuxNotification, E2EAckMessage, RelayToClient } from '@cmux-relay/shared';
 import { ClientE2ECrypto } from '../lib/e2e-crypto';
 import { createMessageRouter, type ConnectionPhase } from '../lib/message-router';
 import { useWebSocket } from './useWebSocket';
@@ -100,8 +100,12 @@ export function useRelay({ url, token, sessionId, e2eEnabled, onSessionExpired }
       ws.send(JSON.stringify({ type: 'auth', payload: { token: token ?? '' } }));
     },
     onSessionExpired,
-    onMessage: (msg) => {
-      if (msg.type === 'webrtc.offer') {
+    onMessage: (() => {
+      // Track whether the first notifications batch (init state) was received
+      // to suppress toasts for auth-initiated notifications on reconnect
+      let initNotificationsReceived = false;
+      return (msg: RelayToClient) => {
+        if (msg.type === 'webrtc.offer') {
         console.log('[webrtc] Offer received from agent');
         setP2pStatus('attempting');
         handleOffer({ type: 'offer', sdp: msg.sdp });
@@ -120,14 +124,15 @@ export function useRelay({ url, token, sessionId, e2eEnabled, onSessionExpired }
         onE2EAck(msg).catch((err) => console.error('[e2e] Handshake failed:', err));
         return;
       }
-      // Notifications received during initial state (before connected) are init notifications
-      // They should populate the panel but NOT trigger toasts
-      if (msg.type === 'notifications' && phaseRef.current !== 'connected') {
+      // First notifications after connect = initial state from auth, skip toasts
+      if (msg.type === 'notifications' && !initNotificationsReceived) {
+        initNotificationsReceived = true;
         routeInitNotifications(msg);
         return;
       }
       routeMessage(msg);
-    },
+      };
+    })(),
     onClose: () => { cleanupWebRTC(); },
   });
 

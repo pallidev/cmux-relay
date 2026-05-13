@@ -17,7 +17,7 @@ import { registerServiceWorker, subscribePush, getPendingNavigation, getPendingN
 import { getJwtFromBrowser } from '../hooks/useAuth';
 import type { CmuxNotification } from '@cmux-relay/shared';
 
-export function RelaySessionLayout({ sessionId, onDisconnect }: { sessionId: string; onDisconnect?: () => void }) {
+export function RelaySessionLayout({ sessionId, onDisconnect, onRetry }: { sessionId: string; onDisconnect?: () => void; onRetry?: () => void }) {
   const isMobile = useMobile();
   const [jwt] = useState<string>(() => getJwtFromBrowser() ?? '');
 
@@ -25,12 +25,12 @@ export function RelaySessionLayout({ sessionId, onDisconnect }: { sessionId: str
     ? `${getRelayWsUrl()}/ws/client?session=${sessionId}&token=${encodeURIComponent(jwt)}`
     : `${getRelayWsUrl()}/ws/client?session=${sessionId}`;
 
-  if (isMobile) return <MobileLayout relayWsUrl={wsUrl} onDisconnect={onDisconnect} />;
+  if (isMobile) return <MobileLayout relayWsUrl={wsUrl} onDisconnect={onDisconnect} onRetry={onRetry} />;
 
-  return <RelaySessionInner wsUrl={wsUrl} onDisconnect={onDisconnect} />;
+  return <RelaySessionInner wsUrl={wsUrl} onDisconnect={onDisconnect} onRetry={onRetry} />;
 }
 
-function RelaySessionInner({ wsUrl, onDisconnect }: { wsUrl: string; onDisconnect?: () => void }) {
+function RelaySessionInner({ wsUrl, onDisconnect, onRetry }: { wsUrl: string; onDisconnect?: () => void; onRetry?: () => void }) {
   const [showSidebar, setShowSidebar] = useState(true);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
 
@@ -224,6 +224,7 @@ function RelaySessionInner({ wsUrl, onDisconnect }: { wsUrl: string; onDisconnec
               reconnectDelay={reconnectDelay}
               errorMessage={errorMessage}
               transport={transport}
+              onRetry={onRetry}
             />
             {selectedWorkspaceId ? (
               wsPanes.length > 0 && paneBounds ? (

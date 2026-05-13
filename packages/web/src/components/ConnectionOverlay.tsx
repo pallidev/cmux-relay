@@ -9,6 +9,7 @@ interface ConnectionOverlayProps {
   reconnectDelay: number;
   errorMessage: string | null;
   transport: TransportType;
+  onRetry?: () => void;
 }
 
 const STEPS = [
@@ -34,6 +35,7 @@ export function ConnectionOverlay({
   reconnectAttempt,
   reconnectDelay,
   errorMessage,
+  onRetry,
 }: ConnectionOverlayProps) {
   if (phase === 'connected' || phase === 'idle') return null;
 
@@ -101,7 +103,7 @@ export function ConnectionOverlay({
         )}
 
         {isPermanentError && (
-          <button className="connection-retry-btn" onClick={() => window.location.reload()} style={{
+          <button className="connection-retry-btn" onClick={() => onRetry?.() ?? window.location.reload()} style={{
             marginTop: '12px',
             padding: '8px 20px',
             background: accent,

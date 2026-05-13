@@ -11,7 +11,7 @@ import type { CmuxNotification } from '@cmux-relay/shared';
 
 const RELAY_URL = getRelayWsUrl();
 
-export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string; onDisconnect?: () => void }) {
+export function MobileLayout({ relayWsUrl, onDisconnect, onRetry }: { relayWsUrl?: string; onDisconnect?: () => void; onRetry?: () => void }) {
   const [appHeight, setAppHeight] = useState(() =>
     window.visualViewport ? window.visualViewport.height : window.innerHeight
   );
@@ -392,6 +392,7 @@ export function MobileLayout({ relayWsUrl, onDisconnect }: { relayWsUrl?: string
             reconnectDelay={reconnectDelay}
             errorMessage={errorMessage}
             transport={transport}
+            onRetry={onRetry}
           />
           {activeSurface ? (
             <Terminal

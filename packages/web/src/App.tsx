@@ -51,6 +51,7 @@ function TerminalPage() {
 
   const fetchSession = useCallback(() => {
     if (!jwt) return;
+    setLoading(true);
     fetch('/api/sessions', { headers: { Authorization: `Bearer ${jwt}` } })
       .then(res => res.ok ? res.json() : [])
       .then(data => {
@@ -75,12 +76,9 @@ function TerminalPage() {
   }, [jwt, fetchSession]);
 
   const handleDisconnect = useCallback(() => {
-    // Don't immediately refetch — give the server time to update
-    // Only retry up to 3 times before redirecting to dashboard
     setRetryCount(prev => {
       const next = prev + 1;
       if (next > 3) {
-        // Too many retries — go back to dashboard
         localStorage.removeItem('cmux-session-id');
         window.location.href = '/';
         return prev;
@@ -90,13 +88,19 @@ function TerminalPage() {
     });
   }, [fetchSession]);
 
+  // Called when user clicks "retry" on permanent error — re-fetch session and reconnect
+  const handleRetry = useCallback(() => {
+    setRetryCount(0);
+    fetchSession();
+  }, [fetchSession]);
+
   if (!jwt) return <LoginPage />;
   if (loading) return null;
   if (!sessionId) {
     window.location.href = '/';
     return null;
   }
-  return <RelaySessionLayout key={sessionId} sessionId={sessionId} onDisconnect={handleDisconnect} />;
+  return <RelaySessionLayout key={sessionId} sessionId={sessionId} onDisconnect={handleDisconnect} onRetry={handleRetry} />;
 }
 
 function HomePage() {

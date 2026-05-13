@@ -110,10 +110,7 @@ export async function runCloudMode(opts: CliOptions, savedAuth: AuthData | null)
 
   relay.onClientConnected(() => {
     syncEngine?.clearLastOutput();
-    // Push current state immediately
     syncEngine?.syncAll();
-    // Trigger notification poll so the new client gets current notifications
-    syncEngine?.pollNotifications();
   });
 
   relay.onClientData(async (msg, clientId) => {

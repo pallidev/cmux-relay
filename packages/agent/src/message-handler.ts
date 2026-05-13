@@ -28,7 +28,7 @@ export async function handleClientMessage(
 
   if (msg.type === 'auth') {
     // In cloud mode, auth is handled by the relay server
-    // Send initial state
+    // Send initial state (no notifications — those are real-time only)
     send({ type: 'workspaces', payload: { workspaces: deps.store.getAllWorkspaces() } });
     for (const w of deps.store.getAllWorkspaces()) {
       send({ type: 'surfaces', workspaceId: w.id, payload: { surfaces: deps.store.getSurfacesForWorkspace(w.id) } });
@@ -37,10 +37,6 @@ export async function handleClientMessage(
       const wsPanes = deps.store.getPanesForWorkspace(w.id);
       const containerFrame = deps.store.getContainerFrameForWorkspace(w.id);
       send({ type: 'panes', workspaceId: w.id, payload: { panes: wsPanes, containerFrame } });
-    }
-    const notifications = deps.store.getAllNotifications();
-    if (notifications.length > 0) {
-      send({ type: 'notifications', payload: { notifications } });
     }
     console.log(`[agent] Cloud client initialized`);
     return;

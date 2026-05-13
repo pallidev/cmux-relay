@@ -58,7 +58,7 @@ function makeState(): MessageRouterState & {
 describe('createMessageRouter', () => {
   it('handles workspaces message', () => {
     const ctx = makeState();
-    const { routeMessage: router } = createMessageRouter(ctx);
+    const router = createMessageRouter(ctx);
 
     router({
       type: 'workspaces',
@@ -85,7 +85,7 @@ describe('createMessageRouter', () => {
       { id: 's-1', title: 'Old Surface', type: 'terminal', workspaceId: 'ws-1' },
       { id: 's-3', title: 'Other WS', type: 'terminal', workspaceId: 'ws-2' },
     ];
-    const { routeMessage: router } = createMessageRouter(ctx);
+    const router = createMessageRouter(ctx);
 
     // Replace ws-1 surfaces, keep ws-2
     router({
@@ -111,7 +111,7 @@ describe('createMessageRouter', () => {
 
   it('handles panes message — merges by workspaceId with containerFrame', () => {
     const ctx = makeState();
-    const { routeMessage: router } = createMessageRouter(ctx);
+    const router = createMessageRouter(ctx);
 
     const frame: FrameRect = { x: 0, y: 0, width: 800, height: 600 };
 
@@ -141,7 +141,7 @@ describe('createMessageRouter', () => {
       { id: 'p-1', index: 0, surfaceIds: ['s-1'], selectedSurfaceId: 's-1', columns: 80, rows: 24, frame: { x: 0, y: 0, width: 400, height: 600 }, focused: true, workspaceId: 'ws-1' },
       { id: 'p-2', index: 0, surfaceIds: ['s-3'], selectedSurfaceId: 's-3', columns: 80, rows: 24, frame: { x: 0, y: 0, width: 800, height: 600 }, focused: true, workspaceId: 'ws-2' },
     ];
-    const { routeMessage: router } = createMessageRouter(ctx);
+    const router = createMessageRouter(ctx);
 
     router({
       type: 'panes',
@@ -166,7 +166,7 @@ describe('createMessageRouter', () => {
 
   it('handles surface.active message', () => {
     const ctx = makeState();
-    const { routeMessage: router } = createMessageRouter(ctx);
+    const router = createMessageRouter(ctx);
 
     router({
       type: 'surface.active',
@@ -181,7 +181,7 @@ describe('createMessageRouter', () => {
 
   it('handles output message — unencrypted', () => {
     const ctx = makeState();
-    const { routeMessage: router } = createMessageRouter(ctx);
+    const router = createMessageRouter(ctx);
 
     router({
       type: 'output',
@@ -196,7 +196,7 @@ describe('createMessageRouter', () => {
 
   it('handles output message — encrypted without E2E ready (no output)', () => {
     const ctx = makeState();
-    const { routeMessage: router } = createMessageRouter(ctx);
+    const router = createMessageRouter(ctx);
 
     router({
       type: 'output',
@@ -214,7 +214,7 @@ describe('createMessageRouter', () => {
       isReady: () => true,
       decryptOutput: async (payload: EncryptedPayload) => 'decrypted-data',
     };
-    const { routeMessage: router } = createMessageRouter(ctx);
+    const router = createMessageRouter(ctx);
 
     router({
       type: 'output',
@@ -235,7 +235,7 @@ describe('createMessageRouter', () => {
     ctx.notifications = [
       { id: 'n-1', title: 'Old', subtitle: '', body: '', surfaceId: 's-1', workspaceId: 'ws-1', isRead: true },
     ];
-    const { routeMessage: router } = createMessageRouter(ctx);
+    const router = createMessageRouter(ctx);
 
     router({
       type: 'notifications',
@@ -260,7 +260,7 @@ describe('createMessageRouter', () => {
 
   it('handles error message', () => {
     const ctx = makeState();
-    const { routeMessage: router } = createMessageRouter(ctx);
+    const router = createMessageRouter(ctx);
 
     // Capture console.error calls
     const errors: string[] = [];
@@ -281,7 +281,7 @@ describe('createMessageRouter', () => {
 
   it('ignores unknown message types', () => {
     const ctx = makeState();
-    const { routeMessage: router } = createMessageRouter(ctx);
+    const router = createMessageRouter(ctx);
 
     // Should not throw or call any state setters
     router({ type: 'unknown.message' } as any);

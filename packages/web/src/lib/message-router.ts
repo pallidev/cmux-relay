@@ -46,6 +46,8 @@ export function createMessageRouter(state: MessageRouterState): (msg: RelayToCli
           return [...next, ...msg.payload.surfaces];
         });
         // surfaces can arrive before workspaces; don't downgrade from 'connected'
+        // but do clear the connection timeout — agent is alive
+        state.clearConnectionTimeout();
         break;
       case 'panes':
         state.setPanes(prev => {

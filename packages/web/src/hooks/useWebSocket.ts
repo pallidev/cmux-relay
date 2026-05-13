@@ -91,9 +91,14 @@ export function useWebSocket(
               console.error(`[relay] Agent not responding after ${consecutiveTimeouts} timeouts — giving up`);
               cb.updatePhase('error');
               cb.setErrorMessage('Agent가 응답하지 않습니다. Agent가 실행 중인지 확인해주세요.');
+              // Use forceReconnect's cleanup pattern but stop retrying
               const oldWs = wsRef.current;
               wsRef.current = null;
+              isConnecting = false;
               if (oldWs) { oldWs.onclose = null; oldWs.close(); }
+              cb.setE2eReady(false);
+              cb.e2eRef.current = null;
+              cb.onClose();
               return;
             }
             const delay = Math.min(2000 * Math.pow(1.5, Math.min(consecutiveTimeouts - 1, 5)), 30_000);
@@ -198,14 +203,28 @@ export function useWebSocket(
     connect();
 
     const forceReconnect = (delay = 300) => {
-      if (disposed || isConnecting) return;
+      if (disposed) return;
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
       if (pongTimer) { clearTimeout(pongTimer); pongTimer = null; }
       if (cb.connectionTimeoutRef.current) { clearTimeout(cb.connectionTimeoutRef.current); cb.connectionTimeoutRef.current = null; }
       const oldWs = wsRef.current;
       wsRef.current = null;
+      isConnecting = false;
       if (oldWs) { oldWs.onclose = null; oldWs.close(); }
+
+      // Count forceReconnect as an error attempt so MAX_RECONNECT_ATTEMPTS applies
+      consecutiveErrors++;
+      if (consecutiveErrors > MAX_RECONNECT_ATTEMPTS) {
+        console.error(`[relay] Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached — stopping`);
+        cb.updatePhase('error');
+        cb.setErrorMessage('서버에 연결할 수 없습니다. 나중에 다시 시도해주세요.');
+        cb.setE2eReady(false);
+        cb.e2eRef.current = null;
+        cb.onClose();
+        return;
+      }
+
       cb.onClose();
       cb.updatePhase('reconnecting');
       cb.setReconnectDelay(delay);

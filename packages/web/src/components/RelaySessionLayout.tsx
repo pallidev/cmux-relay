@@ -63,11 +63,19 @@ function RelaySessionInner({ wsUrl, onDisconnect, onRetry }: { wsUrl: string; on
 
   const { toasts, dismissToast } = useNotificationToasts({ notifications });
 
+  // Track if we already notified parent about this disconnect cycle
+  const notifiedDisconnect = useRef(false);
+
   useEffect(() => {
-    // Only trigger disconnect callback for transient disconnections during active use,
-    // not for permanent errors (those show their own UI with retry button)
+    // Only trigger disconnect callback once per disconnect cycle
+    // Not on every reconnect attempt, and not on permanent errors
     if (status === 'disconnected' && phase === 'reconnecting') {
-      onDisconnect?.();
+      if (!notifiedDisconnect.current) {
+        notifiedDisconnect.current = true;
+        onDisconnect?.();
+      }
+    } else if (status === 'connected') {
+      notifiedDisconnect.current = false;
     }
   }, [status, phase, onDisconnect]);
 

@@ -54,7 +54,7 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
   const updateHighestPhase = useCallback((p: ConnectionPhase | null) => { highestPhaseRef.current = p; setHighestPhase(p); }, []);
 
   // --- Message router (pure function from message-router.ts) ---
-  const routeMessage = useCallback(() => createMessageRouter({
+  const router = useCallback(() => createMessageRouter({
     setWorkspaces, setSurfaces, setPanes, setContainerFrames,
     setActiveSurfaceId, setActiveWorkspaceId, setNotifications,
     outputCallback: (surfaceId, data) => outputCbRef.current(surfaceId, data),
@@ -64,6 +64,9 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
     clearConnectionTimeout: () => { if (connectionTimeoutRef.current) { clearTimeout(connectionTimeoutRef.current); connectionTimeoutRef.current = null; } },
     resetReconnectAttempt: () => setReconnectAttempt(0),
   }), [updatePhase, updateHighestPhase])();
+
+  const routeMessage = router.routeMessage;
+  const routeInitNotifications = router.routeInitNotifications;
 
   // sendViaWs placeholder — will be set after useWebSocket provides wsRef
   const sendViaWsRef = useRef<(data: string) => void>(() => {});
@@ -112,6 +115,12 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
       }
       if (msg.type === 'e2e.ack') {
         onE2EAck(msg).catch((err) => console.error('[e2e] Handshake failed:', err));
+        return;
+      }
+      // Notifications received during initial state (before connected) are init notifications
+      // They should populate the panel but NOT trigger toasts
+      if (msg.type === 'notifications' && phaseRef.current !== 'connected') {
+        routeInitNotifications(msg);
         return;
       }
       routeMessage(msg);

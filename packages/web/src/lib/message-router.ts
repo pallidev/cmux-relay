@@ -31,7 +31,18 @@ export interface MessageRouterState {
   resetReconnectAttempt: () => void;
 }
 
-export function createMessageRouter(state: MessageRouterState): (msg: RelayToClient) => void {
+export function createMessageRouter(state: MessageRouterState): {
+  routeMessage: (msg: RelayToClient) => void;
+  routeInitNotifications: (msg: RelayToClient) => void;
+} {
+  return {
+    routeMessage: createRouter(state, false),
+    // Route initial notifications without triggering toasts
+    routeInitNotifications: createRouter(state, true),
+  };
+}
+
+function createRouter(state: MessageRouterState, isInit: boolean): (msg: RelayToClient) => void {
   return (msg: RelayToClient) => {
     switch (msg.type) {
       case 'workspaces':
@@ -89,7 +100,10 @@ export function createMessageRouter(state: MessageRouterState): (msg: RelayToCli
           const newOnes = msg.payload.notifications.filter((n: CmuxNotification) => !existingIds.has(n.id));
           return [...newOnes, ...prev];
         });
-        state.notificationCallback(msg.payload.notifications);
+        // Only trigger toast/browser notification for live notifications, not initial state
+        if (!isInit) {
+          state.notificationCallback(msg.payload.notifications);
+        }
         break;
       case 'error':
         console.error('Relay error:', msg.payload.message);

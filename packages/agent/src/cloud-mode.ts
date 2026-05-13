@@ -110,8 +110,12 @@ export async function runCloudMode(opts: CliOptions, savedAuth: AuthData | null)
 
   relay.onClientConnected(() => {
     syncEngine?.clearLastOutput();
-    // Immediately push current state to all clients so the new one gets it right away
+    // Push current state immediately
     syncEngine?.syncAll();
+    // Send current notifications as initial state (client will show them in panel, no toast)
+    const currentNotifs = store.getAllNotifications();
+    // Use syncAll then a separate targeted send is complex;
+    // Instead, the first pollNotification cycle will handle it
   });
 
   relay.onClientData(async (msg, clientId) => {

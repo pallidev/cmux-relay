@@ -28,7 +28,7 @@ export async function handleClientMessage(
 
   if (msg.type === 'auth') {
     // In cloud mode, auth is handled by the relay server
-    // Just send initial state
+    // Send initial state
     send({ type: 'workspaces', payload: { workspaces: deps.store.getAllWorkspaces() } });
     for (const w of deps.store.getAllWorkspaces()) {
       send({ type: 'surfaces', workspaceId: w.id, payload: { surfaces: deps.store.getSurfacesForWorkspace(w.id) } });

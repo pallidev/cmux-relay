@@ -8,7 +8,7 @@ import type { AgentE2ECrypto } from './e2e-crypto.js';
 import { WebRTCTransport } from './webrtc-transport.js';
 import { NetworkMonitor } from './network-monitor.js';
 
-type ClientDataHandler = (msg: ClientOutgoing) => void;
+type ClientDataHandler = (msg: ClientOutgoing, clientId: string) => void;
 
 const CONNECT_TIMEOUT = 10_000;
 const HEARTBEAT_INTERVAL = 30_000;
@@ -193,7 +193,7 @@ export class RelayConnection {
             type: 'input',
             surfaceId: msg.surfaceId,
             payload: { data: decrypted },
-          });
+          }, clientId);
           return;
         } catch (err) {
           console.error('[agent] E2E decrypt failed:', err);
@@ -202,7 +202,7 @@ export class RelayConnection {
       }
     }
 
-    this.onClientDataCb?.(msg);
+    this.onClientDataCb?.(msg, clientId);
   }
 
   async send(payload: RelayToClient): Promise<void> {

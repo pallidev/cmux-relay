@@ -78,6 +78,8 @@ export function useWebSocket(
         cb.setErrorMessage(null);
 
         if (token) ws.send(JSON.stringify({ type: 'auth', payload: { token } }));
+        // Note: auth is also sent via onOpen callback in useRelay for cloud mode
+        // This handles the case where useRelay doesn't pass a token prop
         if (e2e && e2ePublicKey) {
           cb.e2eRef.current = e2e;
           ws.send(JSON.stringify({ type: 'e2e.init', publicKey: e2ePublicKey }));

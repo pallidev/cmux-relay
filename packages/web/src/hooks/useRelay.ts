@@ -90,7 +90,10 @@ export function useRelay({ url, token, sessionId, e2eEnabled }: UseRelayOptions)
     updatePhase, updateHighestPhase,
     setReconnectAttempt, setReconnectDelay, setErrorMessage, setE2eReady,
     phaseRef, highestPhaseRef, connectionTimeoutRef, e2eRef,
-    onOpen: (ws) => { /* E2E init is handled inside useWebSocket */ },
+    onOpen: (ws) => {
+      // Always send auth to trigger initial state from agent
+      ws.send(JSON.stringify({ type: 'auth', payload: { token: token ?? '' } }));
+    },
     onMessage: (msg) => {
       if (msg.type === 'webrtc.offer') {
         console.log('[webrtc] Offer received from agent');

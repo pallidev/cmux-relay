@@ -110,10 +110,11 @@ export async function runCloudMode(opts: CliOptions, savedAuth: AuthData | null)
 
   relay.onClientConnected(() => {
     syncEngine?.clearLastOutput();
+    // Immediately push current state to all clients so the new one gets it right away
+    syncEngine?.syncAll();
   });
 
-  relay.onClientData(async (msg) => {
-    const clientId = 'cloud-client';
+  relay.onClientData(async (msg, clientId) => {
     await handleClientMessage(
       JSON.stringify(msg),
       clientId,

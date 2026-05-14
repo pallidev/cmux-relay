@@ -44,6 +44,12 @@ export async function runLocalMode(opts: CliOptions): Promise<void> {
   console.log(`  cmux socket: ${opts.cmuxSocket || process.env.CMUX_SOCKET_PATH || `${process.env.HOME}/Library/Application Support/cmux/cmux.sock`}`);
   console.log(`  listening: ${opts.host}:${opts.port}`);
 
+  // Register early exit handler so Ctrl+C works during startup too
+  process.on('SIGINT', () => {
+    cleanupPidFile(pidFile).catch(() => {});
+    process.exit(0);
+  });
+
   const store = new SessionStore();
   const deps: ServerDeps = {
     store,
@@ -123,6 +129,7 @@ export async function runLocalMode(opts: CliOptions): Promise<void> {
   });
   syncEngine.startPollNotifications(2000);
 
+  // Replace early handler with full cleanup handler
   const shutdown = () => {
     console.log('\nShutting down...');
     syncEngine.stop();
@@ -133,6 +140,7 @@ export async function runLocalMode(opts: CliOptions): Promise<void> {
     process.exit(0);
   };
 
+  process.removeAllListeners('SIGINT');
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 }

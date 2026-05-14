@@ -1,19 +1,10 @@
-/**
- * Notification toast management hook.
- *
- * Centralises the duplicated toast + browser notification logic from
- * Layout.tsx, MobileLayout.tsx, and RelaySessionLayout.tsx.
- *
- * Pure helper functions are exported separately for unit testing without
- * React.
- */
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { CmuxNotification } from '@cmux-relay/shared';
 
 // ─── Pure helpers (testable without React) ───
 
 const TOAST_DURATION_MS = 5000;
+const SETTLE_MS = 2000;
 
 /**
  * Detect new notifications by comparing current vs previous count.
@@ -47,6 +38,8 @@ export function scheduleToastDismissal(
 
 export interface UseNotificationToastsOpts {
   notifications: CmuxNotification[];
+  /** Timestamp (Date.now()) when the connection became 'connected'. undefined = not connected yet. */
+  connectedAt?: number;
 }
 
 export interface UseNotificationToastsResult {
@@ -57,9 +50,13 @@ export interface UseNotificationToastsResult {
 /**
  * Manages in-app toast notifications that appear when new cmux
  * notifications arrive and auto-dismiss after 5 seconds.
+ *
+ * Suppresses toasts for notifications received within SETTLE_MS of
+ * connecting to prevent duplicate toasts on page refresh / reconnect.
+ * Notifications are still stored in state (visible in the notification panel).
  */
 export function useNotificationToasts(opts: UseNotificationToastsOpts): UseNotificationToastsResult {
-  const { notifications } = opts;
+  const { notifications, connectedAt } = opts;
   const [toasts, setToasts] = useState<CmuxNotification[]>([]);
   const prevNotifCount = useRef(0);
 
@@ -69,10 +66,14 @@ export function useNotificationToasts(opts: UseNotificationToastsOpts): UseNotif
 
     if (newNotifs.length === 0) return;
 
+    // Suppress toasts within the settle window after connecting
+    const settled = connectedAt != null && (Date.now() - connectedAt > SETTLE_MS);
+    if (!settled) return;
+
     setToasts(prev => [...prev, ...newNotifs]);
     const timer = scheduleToastDismissal(newNotifs.length, setToasts);
     return () => clearTimeout(timer);
-  }, [notifications]);
+  }, [notifications, connectedAt]);
 
   const dismissToast = useCallback((i: number) => {
     setToasts(prev => prev.filter((_, idx) => idx !== i));

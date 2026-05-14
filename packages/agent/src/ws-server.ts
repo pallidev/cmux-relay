@@ -220,12 +220,7 @@ async function handleClientMessage(
       const containerFrame = deps.store.getContainerFrameForWorkspace(w.id);
       send(ws, { type: 'panes', workspaceId: w.id, payload: { panes: wsPanes, containerFrame } });
     }
-    // Send current notifications
-    const notifications = deps.store.getAllNotifications();
-    console.log(`Sending ${notifications.length} notifications to client ${clientId}`);
-    if (notifications.length > 0) {
-      send(ws, { type: 'notifications', payload: { notifications } });
-    }
+    // No notifications on connect — real-time only (via SyncEngine polling)
     console.log(`Client ${clientId} authenticated`);
     return;
   }

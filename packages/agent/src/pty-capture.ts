@@ -16,6 +16,7 @@ export class PtyCapture {
   private server: Server | null = null;
   private onData: ((chunk: Buffer) => void) | null = null;
   private watching = false;
+  private catProc: ReturnType<typeof spawn> | null = null;
 
   constructor(onData: (chunk: Buffer) => void) {
     this.pipePath = join(tmpdir(), `cmux-relay-${process.pid}.pipe`);
@@ -75,15 +76,18 @@ export class PtyCapture {
     const watch = () => {
       if (!this.watching) return;
 
-      const cat = spawn('cat', [pipePath]);
-      cat.stdout.on('data', (chunk: Buffer) => {
+      this.catProc = spawn('cat', [pipePath]);
+      const cat = this.catProc;
+      cat.stdout?.on('data', (chunk: Buffer) => {
         if (this.onData) this.onData(chunk);
       });
       cat.on('exit', () => {
+        if (this.catProc === cat) this.catProc = null;
         // Re-open when the writer disconnects
         setTimeout(watch, 100);
       });
       cat.on('error', () => {
+        if (this.catProc === cat) this.catProc = null;
         setTimeout(watch, 1000);
       });
     };
@@ -117,6 +121,10 @@ fi
 
   stop(): void {
     this.watching = false;
+    if (this.catProc && !this.catProc.killed) {
+      this.catProc.kill();
+      this.catProc = null;
+    }
     if (this.server) {
       this.server.close();
       this.server = null;

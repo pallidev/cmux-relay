@@ -78,7 +78,7 @@ describe('handleClientMessage', () => {
   // ─── Auth ───
 
   describe('auth', () => {
-    it('sends workspaces, surfaces, panes, and notifications on auth', async () => {
+    it('sends workspaces, surfaces, panes on auth (no notifications — real-time only)', async () => {
       store.updateWorkspaces([{ id: 'ws1', title: 'Workspace 1' }]);
       store.updateSurfaces('ws1', [
         { id: 's1', title: 'Terminal', type: 'terminal', workspaceId: 'ws1' },
@@ -114,7 +114,8 @@ describe('handleClientMessage', () => {
       assert.ok(types.includes('workspaces'));
       assert.ok(types.includes('surfaces'));
       assert.ok(types.includes('panes'));
-      assert.ok(types.includes('notifications'));
+      // Notifications are NOT sent on auth — only via real-time polling
+      assert.ok(!types.includes('notifications'));
     });
 
     it('sends surfaces for each workspace', async () => {
@@ -163,9 +164,19 @@ describe('handleClientMessage', () => {
       assert.equal(panesMsg.payload.panes.length, 1);
     });
 
-    it('does not send notifications when store has none', async () => {
+    it('does not send notifications even when store has them', async () => {
       store.updateWorkspaces([{ id: 'ws1', title: 'W1' }]);
-      store.updateNotifications([]);
+      store.updateNotifications([
+        {
+          id: 'n1',
+          title: 'Alert',
+          subtitle: '',
+          body: 'Body',
+          surfaceId: 's1',
+          workspaceId: 'ws1',
+          isRead: false,
+        },
+      ]);
 
       await sendMessage(JSON.stringify({ type: 'auth', payload: { token: 'any' } }));
 

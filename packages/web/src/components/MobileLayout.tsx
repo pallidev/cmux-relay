@@ -73,7 +73,15 @@ export function MobileLayout({ relayWsUrl, onDisconnect, onRetry }: { relayWsUrl
     onNotifications,
   } = useRelay(relayUrl ? { url: relayUrl, e2eEnabled: true, onSessionExpired: onRetry } : { url: '' });
 
-  const { toasts, dismissToast } = useNotificationToasts({ notifications });
+  const connectedAtRef = useRef<number | undefined>(undefined);
+  if (phase === 'connected' && connectedAtRef.current === undefined) {
+    connectedAtRef.current = Date.now();
+  }
+  if (phase !== 'connected') {
+    connectedAtRef.current = undefined;
+  }
+
+  const { toasts, dismissToast } = useNotificationToasts({ notifications, connectedAt: connectedAtRef.current });
 
   const userSelectedRef = useRef(false);
   const activeSurfaceIdRef = useRef<string | null>(null);

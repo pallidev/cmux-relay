@@ -75,6 +75,9 @@ export async function runCloudMode(opts: CliOptions, savedAuth: AuthData | null)
   console.log(`  relay: ${opts.relayUrl}`);
   console.log(`  auth: ${opts.apiToken ? 'API token' : savedAuth ? 'saved token' : 'none (pairing required)'}`);
 
+  // Register early exit handler so Ctrl+C works during startup too
+  process.on('SIGINT', () => process.exit(0));
+
   const store = new SessionStore();
   const cmux = new CmuxClient(opts.cmuxSocket || undefined);
   const inputHandler = new InputHandler(cmux);
@@ -189,6 +192,7 @@ export async function runCloudMode(opts: CliOptions, savedAuth: AuthData | null)
     getPtySurfaceId: () => cloudPtySurfaceId,
   });
 
+  // Replace early handler with full cleanup handler
   const shutdown = () => {
     console.log('\nShutting down...');
     syncEngine.stop();
@@ -198,6 +202,7 @@ export async function runCloudMode(opts: CliOptions, savedAuth: AuthData | null)
     process.exit(0);
   };
 
+  process.removeAllListeners('SIGINT');
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 }

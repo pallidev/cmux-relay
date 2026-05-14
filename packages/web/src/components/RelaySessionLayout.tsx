@@ -61,7 +61,15 @@ function RelaySessionInner({ wsUrl, onDisconnect, onRetry }: { wsUrl: string; on
     handleSelectWorkspace,
   } = useWorkspaceSelection({ workspaces, panes, surfaces, selectSurface });
 
-  const { toasts, dismissToast } = useNotificationToasts({ notifications });
+  const connectedAtRef = useRef<number | undefined>(undefined);
+  if (phase === 'connected' && connectedAtRef.current === undefined) {
+    connectedAtRef.current = Date.now();
+  }
+  if (phase !== 'connected') {
+    connectedAtRef.current = undefined;
+  }
+
+  const { toasts, dismissToast } = useNotificationToasts({ notifications, connectedAt: connectedAtRef.current });
 
   // Track if we already notified parent about this disconnect cycle
   const notifiedDisconnect = useRef(false);

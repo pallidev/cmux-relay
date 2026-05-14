@@ -22,6 +22,15 @@ export function detectNewNotifications(
 }
 
 /**
+ * Check whether enough time has passed since connection to show toasts.
+ * Returns true if toasts should be shown, false if suppressed.
+ */
+export function shouldShowToast(connectedAt: number | undefined, now: number): boolean {
+  if (connectedAt == null) return false;
+  return now - connectedAt > SETTLE_MS;
+}
+
+/**
  * Schedule auto-dismissal of toast notifications.
  * Returns a cleanup function to clear the timeout.
  */
@@ -67,8 +76,7 @@ export function useNotificationToasts(opts: UseNotificationToastsOpts): UseNotif
     if (newNotifs.length === 0) return;
 
     // Suppress toasts within the settle window after connecting
-    const settled = connectedAt != null && (Date.now() - connectedAt > SETTLE_MS);
-    if (!settled) return;
+    if (!shouldShowToast(connectedAt, Date.now())) return;
 
     setToasts(prev => [...prev, ...newNotifs]);
     const timer = scheduleToastDismissal(newNotifs.length, setToasts);

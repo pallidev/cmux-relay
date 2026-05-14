@@ -12,6 +12,7 @@ import type { CmuxNotification } from '@cmux-relay/shared';
 
 import {
   detectNewNotifications,
+  shouldShowToast,
 } from '../../../packages/web/src/hooks/useNotifications.ts';
 
 function makeNotif(id: string): CmuxNotification {
@@ -76,5 +77,23 @@ describe('useNotifications — detectNewNotifications', () => {
     const result = detectNewNotifications([], 3);
     assert.deepEqual(result.newNotifs, []);
     assert.equal(result.newPrevCount, 0);
+  });
+});
+
+describe('useNotifications — shouldShowToast (settle window)', () => {
+  it('returns false when connectedAt is undefined (not connected)', () => {
+    assert.equal(shouldShowToast(undefined, 10000), false);
+  });
+
+  it('returns false when connection is too recent (within settle window)', () => {
+    const connectedAt = 10000;
+    assert.equal(shouldShowToast(connectedAt, 10001), false);
+    assert.equal(shouldShowToast(connectedAt, 11999), false);
+  });
+
+  it('returns true after settle window has passed', () => {
+    const connectedAt = 10000;
+    assert.equal(shouldShowToast(connectedAt, 12001), true);
+    assert.equal(shouldShowToast(connectedAt, 20000), true);
   });
 });

@@ -212,6 +212,54 @@ cmux-relay/
 - **API 토큰** — SHA-256 해시, 페어링 시 자동 생성
 - **TLS** — 종단간 HTTPS/WSS
 
+## cmux 소켓 접근 제한
+
+**중요:** cmux **0.64.6**부터 Unix 소켓(`cmux.sock`)은 cmux 내부에서 시작된 프로세스만 연결을 허용합니다. 외부 프로세스(`cmux` CLI, AI 에이전트, 자동화 도구 등)는 연결 시 "Broken pipe" 에러를 받습니다.
+
+### 증상
+
+```
+$ cmux list-workspaces
+Error: Failed to write to socket (Broken pipe, errno 32)
+```
+
+소켓에 직접 연결하면 실제 에러 메시지를 확인할 수 있습니다:
+
+```
+ERROR: Access denied — only processes started inside cmux can connect
+```
+
+### 해결 방법
+
+cmux 설정의 `socketControlMode`를 변경합니다:
+
+```jsonc
+// ~/.config/cmux/cmux.json
+{
+  "automation": {
+    "socketControlMode": "open"   // "cmuxOnly" (기본값)에서 변경
+  }
+}
+```
+
+| 모드 | 동작 |
+|------|------|
+| `cmuxOnly` | **기본값.** cmux 내부에서 시작된 프로세스만 연결 가능. 외부 도구 차단. |
+| `open` | 로컬 머신의 모든 프로세스가 연결 가능. cmux-relay, AI 에이전트 등 외부 도구에 필요. |
+| `password` | 외부 프로세스가 비밀번호를 제공해야 함 (`CMUX_SOCKET_PASSWORD` 환경변수 또는 `--password` 플래그). |
+
+### cmux-relay에 미치는 영향
+
+- **cmux-relay 에이전트**는 외부 프로세스로서 cmux Unix 소켓에 연결합니다
+- `socketControlMode`가 `cmuxOnly`(기본값)이면 에이전트가 **연결할 수 없고** 조용히 실패합니다
+- cmux-relay를 사용하려면 **`socketControlMode`를 `"open"` 또는 `"password"`로 설정해야 합니다**
+
+설정 변경 후 cmux를 재시작하거나 `cmux reload-config`를 실행하세요.
+
+### 보안 고려사항
+
+이는 보안 기능입니다 — 임의의 프로세스가 터미널 세션을 읽거나 쓰는 것을 방지합니다. 하지만 cmux와 통신하는 모든 외부 자동화 도구가 동작하지 않게 됩니다. `socketControlMode`를 `"open"`으로 설정할 때는 이 보안 트레이드오프를 고려하세요.
+
 ## CLI 옵션
 
 ```bash

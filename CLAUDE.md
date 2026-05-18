@@ -120,6 +120,19 @@ Agent가 사용하는 cmux v2 JSON-RPC 메서드:
 
 Socket 경로: `CMUX_SOCKET_PATH` env 또는 `~/Library/Application Support/cmux/cmux.sock`
 
+### ⚠️ cmux 0.64.6+ 소켓 접근 제한
+
+cmux 0.64.6부터 `socketControlMode: "cmuxOnly"`(기본값)로 인해 **외부 프로세스의 소켓 연결이 차단**됩니다. `cmux` CLI도 마찬가지입니다.
+
+에러: `Failed to write to socket (Broken pipe, errno 32)`
+실제 메시지: `ERROR: Access denied — only processes started inside cmux can connect`
+
+**해결**: `~/.config/cmux/cmux.json`에 추가:
+```jsonc
+{ "automation": { "socketControlMode": "open" } }
+```
+모드: `cmuxOnly`(기본, 외부 차단) | `open`(모든 프로세스 허용) | `password`(비밀번호 필요)
+
 ## WebSocket Protocol
 
 ### Client → Agent (Local) / Client → Relay → Agent (Cloud)

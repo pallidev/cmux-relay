@@ -252,6 +252,54 @@ Agent                              Relay                              Client (Br
 
 **Code audit:** All source code is open and auditable at [github.com/pallidev/cmux-relay](https://github.com/pallidev/cmux-relay). The relay server code (`packages/relay/`) has no crypto dependencies and never decrypts terminal data.
 
+## cmux Socket Access Restriction
+
+**Important:** Starting with cmux **0.64.6**, the Unix socket (`cmux.sock`) only accepts connections from processes launched *inside* cmux itself. External processes (including `cmux` CLI, Hermes, AI agents, or other tools) will receive a silent "Broken pipe" error.
+
+### Symptoms
+
+```
+$ cmux list-workspaces
+Error: Failed to write to socket (Broken pipe, errno 32)
+```
+
+Direct socket connection confirms the real error:
+
+```
+ERROR: Access denied — only processes started inside cmux can connect
+```
+
+### How to Fix
+
+The restriction is controlled by `socketControlMode` in cmux settings:
+
+```jsonc
+// ~/.config/cmux/cmux.json
+{
+  "automation": {
+    "socketControlMode": "open"   // Change from "cmuxOnly" (default)
+  }
+}
+```
+
+| Mode | Behavior |
+|------|----------|
+| `cmuxOnly` | **Default.** Only processes started inside cmux can connect. External tools are blocked. |
+| `open` | Any process on the local machine can connect. Required for cmux-relay, AI agents, automation tools. |
+| `password` | External processes must provide a password (`CMUX_SOCKET_PASSWORD` env or `--password` flag). |
+
+### Impact on cmux-relay
+
+- **cmux-relay agent** connects to cmux's Unix socket as an external process
+- If `socketControlMode` is `cmuxOnly` (default), the agent **cannot** connect and will fail silently
+- **You must set `socketControlMode` to `"open"` or `"password"`** for cmux-relay to work
+
+After changing the setting, either restart cmux or run `cmux reload-config`.
+
+### Why This Matters
+
+This is a security feature — it prevents arbitrary processes from reading/writing your terminal sessions. However, it also breaks any external automation tooling that interacts with cmux. Always consider the security tradeoff when setting `socketControlMode` to `"open"`.
+
 ## CLI Options
 
 ```bash

@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import type { WorkspaceInfo, SurfaceInfo, PaneInfo, FrameRect, CmuxNotification, E2EAckMessage } from '@cmux-relay/shared';
+import type { WorkspaceInfo, SurfaceInfo, PaneInfo, FrameRect, CmuxNotification, E2EAckMessage, RelayToClient } from '@cmux-relay/shared';
 import { ClientE2ECrypto } from '../lib/e2e-crypto';
 import { createMessageRouter, type ConnectionPhase } from '../lib/message-router';
 import { useWebSocket } from './useWebSocket';

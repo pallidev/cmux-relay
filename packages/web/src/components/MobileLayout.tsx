@@ -94,7 +94,7 @@ export function MobileLayout({ relayWsUrl, onDisconnect, onRetry }: { relayWsUrl
   // Wire ACP messages from useRelay to useAcpChat
   onAcpMessage(useCallback((msg) => handleAcpMessage(msg), [handleAcpMessage]));
 
-  const hasAcp = acpAgentStatus !== 'starting' || acpSessionId !== null;
+  const hasAcp = acpAgentStatus != null;
   const [activeView, setActiveView] = useState<'terminal' | 'chat'>(() =>
     (localStorage.getItem('cmux-relay-view') as 'terminal' | 'chat') || 'terminal'
   );

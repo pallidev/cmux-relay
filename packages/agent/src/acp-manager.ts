@@ -1,6 +1,8 @@
 import { ChildProcess, spawn } from 'node:child_process';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { Writable, Readable } from 'node:stream';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
 import {
   ClientSideConnection,
   ndJsonStream,
@@ -26,6 +28,8 @@ import type { RelayToClient } from '@cmux-relay/shared';
 type SendToWeb = (msg: RelayToClient) => void;
 
 const PERMISSION_TIMEOUT_MS = 60_000;
+const HISTORY_DIR = join(homedir(), '.cmux-relay');
+const HISTORY_FILE = join(HISTORY_DIR, 'acp-history.json');
 
 export class AcpManager {
   private agentProcess: ChildProcess | null = null;
@@ -89,6 +93,9 @@ export class AcpManager {
 
       console.log(`[acp] Initialized: protocol v${initResult.protocolVersion}, agent=${initResult.agentInfo?.name ?? this.config.name}`);
 
+      // Load persisted history before creating/resuming session
+      await this.loadPersistedHistory();
+
       // Try to resume the most recent session, fall back to new session
       await this.resumeOrCreateSession();
 
@@ -143,11 +150,31 @@ export class AcpManager {
   private async handleSessionUpdate(params: SessionNotification): Promise<void> {
     if (!this.acpSessionId) return;
     this.sessionHistory.push(params.update);
+    this.persistHistory();
     this.sendToWeb({
       type: 'acp.session_update',
       sessionId: this.acpSessionId,
       update: params.update,
     });
+  }
+
+  private persistHistory(): void {
+    mkdir(HISTORY_DIR, { recursive: true }).then(() => {
+      writeFile(HISTORY_FILE, JSON.stringify({ sessionId: this.acpSessionId, history: this.sessionHistory }), 'utf-8').catch(() => {});
+    }).catch(() => {});
+  }
+
+  private async loadPersistedHistory(): Promise<void> {
+    try {
+      const data = await readFile(HISTORY_FILE, 'utf-8');
+      const parsed = JSON.parse(data);
+      if (parsed.history && Array.isArray(parsed.history)) {
+        this.sessionHistory = parsed.history;
+        console.log(`[acp] Loaded ${parsed.history.length} history entries from disk`);
+      }
+    } catch {
+      // No persisted history yet
+    }
   }
 
   private handleRequestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {

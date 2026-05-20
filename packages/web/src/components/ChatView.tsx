@@ -12,14 +12,7 @@ interface ChatViewProps {
   onSendPrompt: (text: string) => void;
   onCancel: () => void;
   onPermissionResponse: (optionId: string) => void;
-  onNewSession: () => void;
 }
-
-const SLASH_COMMANDS = [
-  { cmd: '/new', desc: 'Start a new session' },
-  { cmd: '/cancel', desc: 'Cancel current prompt' },
-  { cmd: '/help', desc: 'Show available commands' },
-];
 
 export function ChatView({
   messages,
@@ -30,78 +23,19 @@ export function ChatView({
   onSendPrompt,
   onCancel,
   onPermissionResponse,
-  onNewSession,
 }: ChatViewProps) {
   const [input, setInput] = useState('');
-  const [showCommands, setShowCommands] = useState(false);
-  const [selectedCmd, setSelectedCmd] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const filteredCommands = input.startsWith('/')
-    ? SLASH_COMMANDS.filter(c => c.cmd.startsWith(input.toLowerCase()))
-    : [];
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  useEffect(() => {
-    setShowCommands(filteredCommands.length > 0 && input.length > 0);
-    setSelectedCmd(0);
-  }, [input]);
-
-  const executeCommand = (cmd: string) => {
-    setInput('');
-    setShowCommands(false);
-    switch (cmd) {
-      case '/new':
-        onNewSession();
-        break;
-      case '/cancel':
-        onCancel();
-        break;
-      case '/help':
-        // Show help as a system message via prompt (agent will respond)
-        onSendPrompt('/help');
-        break;
-      default:
-        onSendPrompt(cmd);
-    }
-  };
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (showCommands && filteredCommands.length > 0) {
-      executeCommand(filteredCommands[selectedCmd].cmd);
-      return;
-    }
     if (!input.trim() || isProcessing) return;
-    if (input.startsWith('/')) {
-      executeCommand(input.trim().toLowerCase());
-      return;
-    }
     onSendPrompt(input.trim());
     setInput('');
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (!showCommands) return;
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setSelectedCmd(i => Math.min(i + 1, filteredCommands.length - 1));
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setSelectedCmd(i => Math.max(i - 1, 0));
-    } else if (e.key === 'Tab') {
-      e.preventDefault();
-      if (filteredCommands.length > 0) {
-        setInput(filteredCommands[selectedCmd].cmd + ' ');
-        setShowCommands(false);
-      }
-    } else if (e.key === 'Escape') {
-      setShowCommands(false);
-    }
   };
 
   const statusText = agentStatus === 'starting'
@@ -175,9 +109,6 @@ export function ChatView({
               : agentStatus === 'error'
               ? 'Failed to connect to agent'
               : 'Waiting for agent...'}
-            <div style={{ marginTop: 16, fontSize: 12, color: '#585b70' }}>
-              Type / for commands
-            </div>
           </div>
         )}
         {messages.map(msg => (
@@ -194,36 +125,6 @@ export function ChatView({
         />
       )}
 
-      {/* Command autocomplete */}
-      {showCommands && (
-        <div style={{
-          background: '#181825',
-          borderTop: '1px solid #313244',
-          maxHeight: 120,
-          overflowY: 'auto',
-        }}>
-          {filteredCommands.map((c, i) => (
-            <div
-              key={c.cmd}
-              onClick={() => executeCommand(c.cmd)}
-              style={{
-                padding: '6px 12px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                cursor: 'pointer',
-                background: i === selectedCmd ? '#313244' : 'transparent',
-                color: '#cdd6f4',
-                fontSize: 13,
-              }}
-            >
-              <span style={{ color: '#89b4fa', fontFamily: 'monospace', fontWeight: 600 }}>{c.cmd}</span>
-              <span style={{ color: '#6c7086', fontSize: 12 }}>{c.desc}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
       {/* Input bar */}
       <form onSubmit={handleSubmit} style={{
         display: 'flex',
@@ -234,12 +135,10 @@ export function ChatView({
         flexShrink: 0,
       }}>
         <input
-          ref={inputRef}
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={isReady ? 'Message... (type / for commands)' : 'Waiting for agent...'}
+          placeholder={isReady ? 'Message...' : 'Waiting for agent...'}
           disabled={!isReady || isProcessing}
           style={{
             flex: 1,

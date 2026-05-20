@@ -132,6 +132,55 @@ describe('relay-connection (integration unit)', () => {
 
       conn.disconnect();
     });
+
+    it('broadcasts ACP messages via relay without connected clients', async () => {
+      const serverPort = await createRelayServer();
+      const { RelayConnection } = await import('../../../packages/agent/src/relay-connection.js');
+      const conn = new RelayConnection(`ws://localhost:${serverPort}`, 'test-token');
+
+      await conn.connect();
+
+      const received: string[] = [];
+      agentWs!.on('message', (raw) => {
+        received.push(typeof raw === 'string' ? raw : raw.toString('utf-8'));
+      });
+
+      // ACP messages should be broadcast even without connected clients
+      conn.send({ type: 'acp.agent_status', status: 'starting', agentName: 'test-agent' } as any);
+
+      await new Promise((r) => setTimeout(r, 100));
+      assert.ok(received.length > 0, 'should send ACP message to relay');
+
+      const msg = decodeMessage<{ type: string; payload: { type: string } }>(received[received.length - 1]);
+      assert.equal(msg.type, 'agent.data');
+      assert.equal(msg.payload.type, 'acp.agent_status');
+
+      conn.disconnect();
+    });
+
+    it('broadcasts acp.session_update via relay', async () => {
+      const serverPort = await createRelayServer();
+      const { RelayConnection } = await import('../../../packages/agent/src/relay-connection.js');
+      const conn = new RelayConnection(`ws://localhost:${serverPort}`, 'test-token');
+
+      await conn.connect();
+
+      const received: string[] = [];
+      agentWs!.on('message', (raw) => {
+        received.push(typeof raw === 'string' ? raw : raw.toString('utf-8'));
+      });
+
+      conn.send({ type: 'acp.session_update', sessionId: 's1', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hi' } } } as any);
+
+      await new Promise((r) => setTimeout(r, 100));
+      assert.ok(received.length > 0);
+
+      const msg = decodeMessage<{ type: string; payload: { type: string } }>(received[received.length - 1]);
+      assert.equal(msg.type, 'agent.data');
+      assert.equal(msg.payload.type, 'acp.session_update');
+
+      conn.disconnect();
+    });
   });
 
   describe('without token (pairing flow)', () => {

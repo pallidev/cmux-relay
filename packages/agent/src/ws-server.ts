@@ -223,6 +223,8 @@ async function handleClientMessage(
       send(ws, { type: 'panes', workspaceId: w.id, payload: { panes: wsPanes, containerFrame } });
     }
     // No notifications on connect — real-time only (via SyncEngine polling)
+    // Resend ACP state so newly connected clients see the chat tab
+    deps.acpManager?.resendState();
     console.log(`Client ${clientId} authenticated`);
     return;
   }

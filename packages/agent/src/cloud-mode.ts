@@ -116,6 +116,7 @@ export async function runCloudMode(opts: CliOptions, savedAuth: AuthData | null)
   relay.onClientConnected(() => {
     syncEngine?.clearLastOutput();
     syncEngine?.syncAll();
+    acpManager?.resendState();
   });
 
   relay.onClientData(async (msg, clientId) => {

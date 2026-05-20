@@ -38,6 +38,8 @@ export class AcpManager {
     timer: ReturnType<typeof setTimeout>;
   }>();
   private isPrompting = false;
+  private agentStatus: 'starting' | 'ready' | 'error' = 'starting';
+  private agentError: string | undefined;
 
   constructor(config: AcpAgentConfig, sendToWeb: SendToWeb) {
     this.config = config;
@@ -45,11 +47,7 @@ export class AcpManager {
   }
 
   async initialize(): Promise<void> {
-    this.sendToWeb({
-      type: 'acp.agent_status',
-      status: 'starting',
-      agentName: this.config.name,
-    });
+    this.sendStatus('starting');
 
     try {
       this.agentProcess = spawn(this.config.command, this.config.args, {
@@ -59,12 +57,8 @@ export class AcpManager {
 
       this.agentProcess.on('exit', (code) => {
         console.error(`[acp] Agent process exited with code ${code}`);
-        this.sendToWeb({
-          type: 'acp.agent_status',
-          status: 'error',
-          agentName: this.config.name,
-          error: `Agent process exited with code ${code}`,
-        });
+        this.agentError = `Agent process exited with code ${code}`;
+        this.sendStatus('error');
         this.connection = null;
       });
 
@@ -103,21 +97,36 @@ export class AcpManager {
         capabilities: initResult.agentCapabilities,
       });
 
-      this.sendToWeb({
-        type: 'acp.agent_status',
-        status: 'ready',
-        agentName: this.config.name,
-      });
+      this.sendStatus('ready');
 
       console.log(`[acp] Session active: ${this.acpSessionId}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[acp] Initialization failed: ${message}`);
+      this.agentError = message;
+      this.sendStatus('error');
+    }
+  }
+
+  private sendStatus(status: 'starting' | 'ready' | 'error'): void {
+    this.agentStatus = status;
+    this.sendToWeb({
+      type: 'acp.agent_status',
+      status,
+      agentName: this.config.name,
+      ...(status === 'error' && this.agentError ? { error: this.agentError } : {}),
+    });
+  }
+
+  /** Resend current ACP state to newly connected clients. */
+  resendState(): void {
+    if (this.agentStatus === 'starting' && !this.acpSessionId) return;
+    this.sendStatus(this.agentStatus);
+    if (this.acpSessionId) {
       this.sendToWeb({
-        type: 'acp.agent_status',
-        status: 'error',
-        agentName: this.config.name,
-        error: message,
+        type: 'acp.session.created',
+        sessionId: this.acpSessionId,
+        capabilities: {},
       });
     }
   }

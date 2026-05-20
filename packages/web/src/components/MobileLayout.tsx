@@ -1,7 +1,9 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useRelay } from '../hooks/useRelay';
 import { useNotificationToasts } from '../hooks/useNotifications';
+import { useAcpChat } from '../hooks/useAcpChat';
 import { Terminal, writeToTerminal } from './Terminal';
+import { ChatView } from './ChatView';
 import { ConnectionOverlay } from './ConnectionOverlay';
 import { StatusBar } from './StatusBar';
 import { ToastContainer } from './ToastContainer';
@@ -69,9 +71,37 @@ export function MobileLayout({ relayWsUrl, onDisconnect, onRetry }: { relayWsUrl
     selectSurface,
     sendInput,
     sendResize,
+    sendRaw,
     onOutput,
     onNotifications,
+    onAcpMessage,
   } = useRelay(relayUrl ? { url: relayUrl, e2eEnabled: true, onSessionExpired: onRetry } : { url: '' });
+
+  // ACP chat hook
+  const {
+    messages: acpMessages,
+    isProcessing: acpProcessing,
+    permissionRequest: acpPermission,
+    agentStatus: acpAgentStatus,
+    agentName: acpAgentName,
+    acpSessionId,
+    handleAcpMessage,
+    sendPrompt: acpSendPrompt,
+    respondToPermission: acpRespondPermission,
+    cancel: acpCancel,
+  } = useAcpChat(sendRaw);
+
+  // Wire ACP messages from useRelay to useAcpChat
+  onAcpMessage(useCallback((msg) => handleAcpMessage(msg), [handleAcpMessage]));
+
+  const hasAcp = acpAgentStatus !== 'starting' || acpSessionId !== null;
+  const [activeView, setActiveView] = useState<'terminal' | 'chat'>(() =>
+    (localStorage.getItem('cmux-relay-view') as 'terminal' | 'chat') || 'terminal'
+  );
+  const setView = (v: 'terminal' | 'chat') => {
+    setActiveView(v);
+    localStorage.setItem('cmux-relay-view', v);
+  };
 
   const connectedAtRef = useRef<number | undefined>(undefined);
   if (phase === 'connected' && connectedAtRef.current === undefined) {
@@ -375,7 +405,7 @@ export function MobileLayout({ relayWsUrl, onDisconnect, onRetry }: { relayWsUrl
         />
 
         {/* Tab bar: surfaces in current workspace */}
-        {wsSurfaces.length > 1 && (
+        {activeView === 'terminal' && wsSurfaces.length > 1 && (
           <div className="mobile-tab-bar">
             {wsSurfaces.map((s) => (
               <button
@@ -389,32 +419,53 @@ export function MobileLayout({ relayWsUrl, onDisconnect, onRetry }: { relayWsUrl
           </div>
         )}
 
-        {/* Terminal area with horizontal scroll */}
-        <div
-          className="mobile-terminal-area"
-        >
-          <ConnectionOverlay
-            phase={phase}
-            highestPhase={highestPhase}
-            reconnectAttempt={reconnectAttempt}
-            reconnectDelay={reconnectDelay}
-            errorMessage={errorMessage}
-            transport={transport}
-            onRetry={onRetry}
-          />
-          {activeSurface ? (
-            <Terminal
-              surfaceId={activeSurface.id}
-              fitRows
-              onInput={(data) => sendInput(activeSurface.id, data)}
-              onResize={(cols, rows) => sendResize(activeSurface.id, cols, rows)}
+        {/* View tabs: Terminal / Chat */}
+        {hasAcp && (
+          <div className="view-tabs">
+            <button className={`view-tab ${activeView === 'terminal' ? 'active' : ''}`} onClick={() => setView('terminal')}>Terminal</button>
+            <button className={`view-tab ${activeView === 'chat' ? 'active' : ''}`} onClick={() => setView('chat')}>Chat</button>
+          </div>
+        )}
+
+        {/* Content area */}
+        {activeView === 'chat' && hasAcp ? (
+          <div className="mobile-terminal-area">
+            <ChatView
+              messages={acpMessages}
+              isProcessing={acpProcessing}
+              agentStatus={acpAgentStatus}
+              agentName={acpAgentName}
+              permissionRequest={acpPermission}
+              onSendPrompt={acpSendPrompt}
+              onCancel={acpCancel}
+              onPermissionResponse={acpRespondPermission}
             />
-          ) : (
-            <div className="no-pane-hint">
-              <p>{workspaces.length === 0 ? 'Start cmux to see terminals' : 'Loading...'}</p>
-            </div>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div className="mobile-terminal-area">
+            <ConnectionOverlay
+              phase={phase}
+              highestPhase={highestPhase}
+              reconnectAttempt={reconnectAttempt}
+              reconnectDelay={reconnectDelay}
+              errorMessage={errorMessage}
+              transport={transport}
+              onRetry={onRetry}
+            />
+            {activeSurface ? (
+              <Terminal
+                surfaceId={activeSurface.id}
+                fitRows
+                onInput={(data) => sendInput(activeSurface.id, data)}
+                onResize={(cols, rows) => sendResize(activeSurface.id, cols, rows)}
+              />
+            ) : (
+              <div className="no-pane-hint">
+                <p>{workspaces.length === 0 ? 'Start cmux to see terminals' : 'Loading...'}</p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <ToastContainer

@@ -1432,3 +1432,36 @@ html, body, #root {
   font-size: 0.7rem;
   color: var(--text-muted);
 }
+
+/* Blinking cursor for streaming chat messages */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* View tabs (Terminal / Chat) */
+.view-tabs {
+  display: flex;
+  gap: 0;
+  background: var(--bg-crust, #11111b);
+  border-bottom: 1px solid var(--bg-surface0, #313244);
+  flex-shrink: 0;
+}
+
+.view-tab {
+  flex: 1;
+  padding: 8px 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted, #6c7086);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  font-family: inherit;
+}
+
+.view-tab.active {
+  color: var(--text-primary, #cdd6f4);
+  border-bottom-color: var(--blue, #89b4fa);
+}

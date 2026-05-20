@@ -10,6 +10,7 @@ import { verifyToken, generateClientToken } from './auth.js';
 import { readTerminalAndSend } from './terminal-reader.js';
 import type { IInputHandler } from './input-handler.js';
 import type { CmuxClient } from './cmux-client.js';
+import type { AcpManager } from './acp-manager.js';
 import {
   decodeMessage,
   type ClientOutgoing,
@@ -19,6 +20,7 @@ export interface ServerDeps {
   store: SessionStore;
   inputHandler: IInputHandler;
   cmux?: CmuxClient;
+  acpManager?: AcpManager;
 }
 
 export interface TlsOptions {
@@ -270,6 +272,26 @@ async function handleClientMessage(
 
     case 'resize': {
       deps.inputHandler.handleResize(msg.surfaceId, msg.payload.cols, msg.payload.rows);
+      break;
+    }
+
+    case 'acp.new_session': {
+      await deps.acpManager?.handleNewSession(msg.cwd);
+      break;
+    }
+
+    case 'acp.prompt': {
+      await deps.acpManager?.handlePrompt(msg.text);
+      break;
+    }
+
+    case 'acp.permission_response': {
+      deps.acpManager?.handlePermissionResponse(msg.requestId, msg.outcome);
+      break;
+    }
+
+    case 'acp.cancel': {
+      await deps.acpManager?.handleCancel();
       break;
     }
   }

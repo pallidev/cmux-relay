@@ -49,8 +49,10 @@ export function useRelay({ url, token, sessionId, e2eEnabled, onSessionExpired }
 
   const outputCbRef = useRef<(surfaceId: string, data: string) => void>(() => {});
   const notificationCbRef = useRef<(notifications: CmuxNotification[]) => void>(() => {});
+  const acpCbRef = useRef<(msg: RelayToClient) => void>(() => {});
   const onOutput = useCallback((cb: (surfaceId: string, data: string) => void) => { outputCbRef.current = cb; }, []);
   const onNotifications = useCallback((cb: (notifications: CmuxNotification[]) => void) => { notificationCbRef.current = cb; }, []);
+  const onAcpMessage = useCallback((cb: (msg: RelayToClient) => void) => { acpCbRef.current = cb; }, []);
 
   const updatePhase = useCallback((p: ConnectionPhase) => { phaseRef.current = p; setPhase(p); }, []);
   const updateHighestPhase = useCallback((p: ConnectionPhase | null) => { highestPhaseRef.current = p; setHighestPhase(p); }, []);
@@ -61,6 +63,7 @@ export function useRelay({ url, token, sessionId, e2eEnabled, onSessionExpired }
     setActiveSurfaceId, setActiveWorkspaceId, setNotifications,
     outputCallback: (surfaceId, data) => outputCbRef.current(surfaceId, data),
     notificationCallback: (notifs) => notificationCbRef.current(notifs),
+    acpCallback: (msg) => acpCbRef.current(msg),
     e2eRef, activeSurfaceIdRef,
     updatePhase: (p) => { updatePhase(p); if (p === 'connected') updateHighestPhase('connected'); },
     clearConnectionTimeout: () => { if (connectionTimeoutRef.current) { clearTimeout(connectionTimeoutRef.current); connectionTimeoutRef.current = null; } },
@@ -158,5 +161,9 @@ export function useRelay({ url, token, sessionId, e2eEnabled, onSessionExpired }
     sendViaTransport(JSON.stringify({ type: 'resize', surfaceId, payload: { cols, rows } }));
   }, [sendViaTransport]);
 
-  return { status, phase, highestPhase, reconnectAttempt, reconnectDelay, errorMessage, transport, p2pStatus, workspaces, surfaces, panes, containerFrames, activeSurfaceId, activeWorkspaceId, notifications, e2eReady, selectSurface, requestWorkspaces, sendInput, sendResize, onOutput, onNotifications };
+  const sendRaw = useCallback((data: string) => {
+    sendViaTransport(data);
+  }, [sendViaTransport]);
+
+  return { status, phase, highestPhase, reconnectAttempt, reconnectDelay, errorMessage, transport, p2pStatus, workspaces, surfaces, panes, containerFrames, activeSurfaceId, activeWorkspaceId, notifications, e2eReady, selectSurface, requestWorkspaces, sendInput, sendResize, sendRaw, onOutput, onNotifications, onAcpMessage };
 }

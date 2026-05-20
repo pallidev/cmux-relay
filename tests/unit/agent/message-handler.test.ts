@@ -5,6 +5,7 @@ import type { MessageHandlerDeps } from '../../../packages/agent/src/message-han
 import { SessionStore } from '../../../packages/agent/src/session-store.js';
 import type { IInputHandler } from '../../../packages/agent/src/input-handler.js';
 import type { CmuxClient } from '../../../packages/agent/src/cmux-client.js';
+import type { AcpManager } from '../../../packages/agent/src/acp-manager.js';
 import type { RelayToClient } from '@cmux-relay/shared';
 
 function createMockInputHandler(): IInputHandler & {
@@ -69,10 +70,34 @@ describe('handleClientMessage', () => {
     return handleClientMessage(data, 'client-1', deps ?? createDeps(), send);
   }
 
+  // Mock AcpManager
+  function createMockAcpManager() {
+    const prompts: string[] = [];
+    const permissionResponses: Array<{ requestId: string; outcome: string }> = [];
+    const cancels: number[] = [];
+    const newSessions: Array<string | undefined> = [];
+
+    const acpManager = {
+      prompts,
+      permissionResponses,
+      cancels,
+      newSessions,
+      async handlePrompt(text: string) { prompts.push(text); },
+      handlePermissionResponse(requestId: string, outcome: string) { permissionResponses.push({ requestId, outcome }); },
+      async handleCancel() { cancels.push(Date.now()); },
+      async handleNewSession(cwd?: string) { newSessions.push(cwd); },
+    } as unknown as AcpManager;
+
+    return acpManager;
+  }
+
+  let mockAcp: ReturnType<typeof createMockAcpManager>;
+
   beforeEach(() => {
     store = new SessionStore();
     inputHandler = createMockInputHandler();
     sentMessages = [];
+    mockAcp = createMockAcpManager();
   });
 
   // ─── Auth ───
@@ -387,6 +412,75 @@ describe('handleClientMessage', () => {
 
     it('ignores empty string', async () => {
       await sendMessage('');
+      assert.equal(sentMessages.length, 0);
+    });
+  });
+
+  // ─── ACP messages ───
+
+  describe('ACP messages', () => {
+    function createDepsWithAcp(): MessageHandlerDeps {
+      return { store, inputHandler, acpManager: mockAcp };
+    }
+
+    it('routes acp.prompt to acpManager.handlePrompt', async () => {
+      await sendMessage(
+        JSON.stringify({ type: 'acp.prompt', sessionId: 'sess-1', text: 'Hello agent' }),
+        createDepsWithAcp(),
+      );
+
+      assert.equal((mockAcp as any).prompts.length, 1);
+      assert.equal((mockAcp as any).prompts[0], 'Hello agent');
+    });
+
+    it('routes acp.permission_response to acpManager.handlePermissionResponse', async () => {
+      await sendMessage(
+        JSON.stringify({ type: 'acp.permission_response', sessionId: 'sess-1', requestId: 'req-1', outcome: 'allow' }),
+        createDepsWithAcp(),
+      );
+
+      assert.equal((mockAcp as any).permissionResponses.length, 1);
+      assert.equal((mockAcp as any).permissionResponses[0].requestId, 'req-1');
+      assert.equal((mockAcp as any).permissionResponses[0].outcome, 'allow');
+    });
+
+    it('routes acp.cancel to acpManager.handleCancel', async () => {
+      await sendMessage(
+        JSON.stringify({ type: 'acp.cancel', sessionId: 'sess-1' }),
+        createDepsWithAcp(),
+      );
+
+      assert.equal((mockAcp as any).cancels.length, 1);
+    });
+
+    it('routes acp.new_session to acpManager.handleNewSession', async () => {
+      await sendMessage(
+        JSON.stringify({ type: 'acp.new_session', cwd: '/home/user/project' }),
+        createDepsWithAcp(),
+      );
+
+      assert.equal((mockAcp as any).newSessions.length, 1);
+      assert.equal((mockAcp as any).newSessions[0], '/home/user/project');
+    });
+
+    it('routes acp.new_session without cwd', async () => {
+      await sendMessage(
+        JSON.stringify({ type: 'acp.new_session' }),
+        createDepsWithAcp(),
+      );
+
+      assert.equal((mockAcp as any).newSessions.length, 1);
+      assert.equal((mockAcp as any).newSessions[0], undefined);
+    });
+
+    it('does not throw when acpManager is undefined', async () => {
+      const depsNoAcp: MessageHandlerDeps = { store, inputHandler };
+
+      // Should not throw
+      await sendMessage(
+        JSON.stringify({ type: 'acp.prompt', sessionId: 's', text: 'hi' }),
+        depsNoAcp,
+      );
       assert.equal(sentMessages.length, 0);
     });
   });

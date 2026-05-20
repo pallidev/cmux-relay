@@ -2,6 +2,7 @@ import { CmuxClient } from './cmux-client.js';
 import { PtyCapture } from './pty-capture.js';
 import { InputHandler } from './input-handler.js';
 import { SessionStore } from './session-store.js';
+import { AcpManager } from './acp-manager.js';
 import { createWSServer } from './ws-server.js';
 import { SyncEngine } from './sync-engine.js';
 import type { Broadcaster } from './sync-engine.js';
@@ -9,6 +10,7 @@ import type { ServerDeps } from './ws-server.js';
 import { ensureSingleInstance, cleanupPidFile } from './process-manager.js';
 import { loadTlsOptions } from './cli.js';
 import type { CliOptions } from './cli.js';
+import type { AcpAgentConfig } from '@cmux-relay/shared';
 
 /**
  * Retry connecting to cmux with exponential backoff.
@@ -129,9 +131,26 @@ export async function runLocalMode(opts: CliOptions): Promise<void> {
   });
   syncEngine.startPollNotifications(2000);
 
+  // Initialize ACP agent if configured
+  let acpManager: AcpManager | undefined;
+  if (opts.acpCommand) {
+    const acpConfig: AcpAgentConfig = {
+      command: opts.acpCommand,
+      args: opts.acpArgs,
+      name: opts.acpName,
+    };
+    acpManager = new AcpManager(acpConfig, (msg) => {
+      localBroadcaster.broadcast(msg);
+    });
+    deps.acpManager = acpManager;
+    await acpManager.initialize();
+    console.log(`[acp] Agent ready: ${opts.acpName || opts.acpCommand}`);
+  }
+
   // Replace early handler with full cleanup handler
   const shutdown = () => {
     console.log('\nShutting down...');
+    acpManager?.dispose();
     syncEngine.stop();
     ptyCapture.stop();
     wss.close();

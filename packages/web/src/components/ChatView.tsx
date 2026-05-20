@@ -1,0 +1,178 @@
+import { useState, useRef, useEffect } from 'react';
+import { ChatMessage } from './ChatMessage';
+import { PermissionDialog } from './PermissionDialog';
+import type { AcpChatMessage, AcpPermissionState } from '../hooks/useAcpChat';
+
+interface ChatViewProps {
+  messages: AcpChatMessage[];
+  isProcessing: boolean;
+  agentStatus: 'starting' | 'ready' | 'error';
+  agentName: string;
+  permissionRequest: AcpPermissionState | null;
+  onSendPrompt: (text: string) => void;
+  onCancel: () => void;
+  onPermissionResponse: (optionId: string) => void;
+}
+
+export function ChatView({
+  messages,
+  isProcessing,
+  agentStatus,
+  agentName,
+  permissionRequest,
+  onSendPrompt,
+  onCancel,
+  onPermissionResponse,
+}: ChatViewProps) {
+  const [input, setInput] = useState('');
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || isProcessing) return;
+    onSendPrompt(input.trim());
+    setInput('');
+  };
+
+  const statusText = agentStatus === 'starting'
+    ? `${agentName || 'Agent'} starting...`
+    : agentStatus === 'error'
+    ? `${agentName || 'Agent'} error`
+    : agentName || 'Agent';
+
+  return (
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      height: '100%',
+      background: '#1e1e2e',
+    }}>
+      {/* Agent status bar */}
+      <div style={{
+        padding: '6px 12px',
+        background: '#181825',
+        borderBottom: '1px solid #313244',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+        flexShrink: 0,
+      }}>
+        <div style={{
+          width: 8,
+          height: 8,
+          borderRadius: '50%',
+          background: agentStatus === 'ready' ? '#a6e3a1' : agentStatus === 'error' ? '#f38ba8' : '#f9e2af',
+        }} />
+        <span style={{ color: '#cdd6f4', fontSize: 12 }}>{statusText}</span>
+        {isProcessing && (
+          <button
+            onClick={onCancel}
+            style={{
+              marginLeft: 'auto',
+              background: '#f38ba8',
+              color: '#1e1e2e',
+              border: 'none',
+              borderRadius: 4,
+              padding: '2px 8px',
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            Stop
+          </button>
+        )}
+      </div>
+
+      {/* Messages */}
+      <div style={{
+        flex: 1,
+        overflowY: 'auto',
+        padding: '12px',
+        WebkitOverflowScrolling: 'touch',
+      }}>
+        {messages.length === 0 && (
+          <div style={{
+            color: '#6c7086',
+            textAlign: 'center',
+            padding: '40px 20px',
+            fontSize: 14,
+          }}>
+            {agentStatus === 'ready'
+              ? `Send a message to start chatting with ${agentName}`
+              : agentStatus === 'error'
+              ? 'Failed to connect to agent'
+              : 'Waiting for agent...'}
+          </div>
+        )}
+        {messages.map(msg => (
+          <ChatMessage key={msg.id} message={msg} />
+        ))}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Permission dialog */}
+      {permissionRequest && (
+        <PermissionDialog
+          request={permissionRequest}
+          onRespond={onPermissionResponse}
+        />
+      )}
+
+      {/* Input bar */}
+      <form onSubmit={handleSubmit} style={{
+        display: 'flex',
+        gap: 0,
+        padding: '8px 12px',
+        background: '#181825',
+        borderTop: '1px solid #313244',
+        flexShrink: 0,
+      }}>
+        <input
+          ref={inputRef}
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder={agentStatus === 'ready' ? 'Message...' : 'Waiting for agent...'}
+          disabled={agentStatus !== 'ready' || isProcessing}
+          style={{
+            flex: 1,
+            height: 36,
+            border: '1px solid #313244',
+            borderRadius: 6,
+            background: '#1e1e2e',
+            color: '#cdd6f4',
+            fontSize: 14,
+            padding: '0 10px',
+            outline: 'none',
+            fontFamily: 'inherit',
+          }}
+        />
+        <button
+          type="submit"
+          disabled={!input.trim() || isProcessing || agentStatus !== 'ready'}
+          style={{
+            height: 36,
+            minWidth: 44,
+            marginLeft: 8,
+            border: 'none',
+            borderRadius: 6,
+            background: (!input.trim() || isProcessing) ? '#313244' : 'rgba(137, 180, 250, 0.8)',
+            color: (!input.trim() || isProcessing) ? '#6c7086' : '#1e1e2e',
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: (!input.trim() || isProcessing) ? 'not-allowed' : 'pointer',
+            padding: '0 10px',
+          }}
+        >
+          Send
+        </button>
+      </form>
+    </div>
+  );
+}

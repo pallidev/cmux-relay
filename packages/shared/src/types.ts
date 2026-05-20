@@ -50,3 +50,15 @@ export interface RelayConfig {
   host: string;
   jwtSecret: string;
 }
+
+/** ACP agent configuration — agent-agnostic, supports any ACP-compatible coding agent */
+export interface AcpAgentConfig {
+  /** Command to spawn the ACP agent (e.g. 'claude-agent-acp', 'codex-acp') */
+  command: string;
+  /** Arguments to pass to the agent process */
+  args: string[];
+  /** Additional environment variables */
+  env?: Record<string, string>;
+  /** Display name for the agent */
+  name: string;
+}

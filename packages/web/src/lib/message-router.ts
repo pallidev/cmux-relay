@@ -29,6 +29,7 @@ export interface MessageRouterState {
   updatePhase: (p: ConnectionPhase) => void;
   clearConnectionTimeout: () => void;
   resetReconnectAttempt: () => void;
+  acpCallback?: (msg: RelayToClient) => void;
 }
 
 export function createMessageRouter(state: MessageRouterState): (msg: RelayToClient) => void {
@@ -93,6 +94,13 @@ export function createMessageRouter(state: MessageRouterState): (msg: RelayToCli
         break;
       case 'error':
         console.error('Relay error:', msg.payload.message);
+        break;
+      case 'acp.agent_status':
+      case 'acp.session.created':
+      case 'acp.session_update':
+      case 'acp.permission_request':
+      case 'acp.session_complete':
+        state.acpCallback?.(msg);
         break;
     }
   };

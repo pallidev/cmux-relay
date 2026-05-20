@@ -39,6 +39,9 @@ npx cmux-relay-agent [options]
 | `--socket <path>` | `CMUX_SOCKET_PATH` | `~/Library/Application Support/cmux/cmux.sock` | cmux Unix socket path |
 | `--tls-cert <path>` | `CMUX_RELAY_TLS_CERT` | — | TLS certificate file |
 | `--tls-key <path>` | `CMUX_RELAY_TLS_KEY` | — | TLS private key file |
+| `--acp-command <cmd>` | `CMUX_ACP_COMMAND` | — | ACP agent command (e.g. `claude-agent-acp`) |
+| `--acp-args <args>` | `CMUX_ACP_ARGS` | — | ACP agent arguments (comma-separated) |
+| `--acp-name <name>` | `CMUX_ACP_NAME` | derived from command | Display name for the ACP agent |
 
 ## Local Mode
 
@@ -60,9 +63,33 @@ npx cmux-relay-agent --relay-url wss://your-relay.example.com/ws/agent
 
 See the [full repository](https://github.com/pallidev/cmux-relay) for relay server setup instructions.
 
+## ACP Chat Mode
+
+Interact with AI coding agents directly from your phone via the [Agent Client Protocol](https://github.com/AcpProtocol/acp). Supports any ACP-compatible agent — Claude Code, Codex, and more.
+
+```bash
+# Claude Code
+npx cmux-relay-agent --acp-command claude-agent-acp
+
+# Codex
+npx cmux-relay-agent --acp-command codex-acp --acp-name Codex
+
+# Custom agent with arguments
+npx cmux-relay-agent --acp-command my-agent --acp-args "--model,o3" --acp-name "My Agent"
+```
+
+The web client shows a **Terminal / Chat** tab switcher. Chat mode provides:
+
+- **Streaming responses** — See agent output in real-time
+- **Tool call cards** — Collapsible cards showing tool usage with status indicators
+- **Permission dialogs** — Approve or deny tool permission requests from your phone
+- **Session auto-resume** — Automatically resumes the most recent session on restart
+- **Multi-agent support** — Any ACP-compatible agent works via `--acp-command`
+
 ## Features
 
 - **Real-time streaming** — Terminal output via WebSocket + PTY capture
+- **ACP agent chat** — Interact with AI coding agents from mobile via Agent Client Protocol
 - **P2P data transfer** — WebRTC DataChannel connects directly to the browser. Relay server only handles signaling.
 - **Automatic fallback** — Seamless fallback to relay-forwarded WebSocket if P2P fails (NAT/firewall)
 - **Bidirectional input** — Send commands from any device

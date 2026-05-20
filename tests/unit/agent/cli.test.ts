@@ -10,6 +10,7 @@ describe('parseCliArgs', () => {
     for (const key of [
       'CMUX_RELAY_PORT', 'CMUX_RELAY_HOST', 'CMUX_RELAY_TLS_CERT',
       'CMUX_RELAY_TLS_KEY', 'CMUX_RELAY_TOKEN', 'CMUX_RELAY_URL',
+      'CMUX_ACP_COMMAND', 'CMUX_ACP_ARGS', 'CMUX_ACP_NAME',
     ]) {
       origEnv[key] = process.env[key];
       delete process.env[key];
@@ -37,6 +38,9 @@ describe('parseCliArgs', () => {
     assert.equal(opts.tlsKey, '');
     assert.equal(opts.apiToken, '');
     assert.equal(opts.relayUrl, 'wss://relay.gateway.myaddr.io/ws/agent');
+    assert.equal(opts.acpCommand, '');
+    assert.deepEqual(opts.acpArgs, []);
+    assert.equal(opts.acpName, '');
   });
 
   it('parses --local flag', () => {
@@ -143,5 +147,62 @@ describe('parseCliArgs', () => {
     const opts = parseCliArgs(['--unknown-flag', 'value', '--local']);
     assert.equal(opts.isLocal, true);
     assert.equal(opts.port, 8080);
+  });
+
+  // ─── ACP options ───
+
+  describe('ACP options', () => {
+    it('parses --acp-command', () => {
+      const opts = parseCliArgs(['--acp-command', 'claude-agent-acp']);
+      assert.equal(opts.acpCommand, 'claude-agent-acp');
+      assert.equal(opts.acpName, 'claude-agent-acp');
+    });
+
+    it('parses --acp-command with --acp-args', () => {
+      const opts = parseCliArgs(['--acp-command', 'codex-acp', '--acp-args', '--model,o3']);
+      assert.equal(opts.acpCommand, 'codex-acp');
+      assert.deepEqual(opts.acpArgs, ['--model', 'o3']);
+    });
+
+    it('parses --acp-name for custom display name', () => {
+      const opts = parseCliArgs(['--acp-command', 'claude-agent-acp', '--acp-name', 'Claude']);
+      assert.equal(opts.acpName, 'Claude');
+    });
+
+    it('derives acpName from acp-command when --acp-name not set', () => {
+      const opts = parseCliArgs(['--acp-command', '@anthropic/claude-agent']);
+      assert.equal(opts.acpName, 'claude-agent');
+    });
+
+    it('reads CMUX_ACP_COMMAND env var', () => {
+      process.env.CMUX_ACP_COMMAND = 'claude-agent-acp';
+      const opts = parseCliArgs([]);
+      assert.equal(opts.acpCommand, 'claude-agent-acp');
+    });
+
+    it('reads CMUX_ACP_ARGS env var', () => {
+      process.env.CMUX_ACP_ARGS = '--verbose,--model,sonnet';
+      const opts = parseCliArgs([]);
+      assert.deepEqual(opts.acpArgs, ['--verbose', '--model', 'sonnet']);
+    });
+
+    it('reads CMUX_ACP_NAME env var', () => {
+      process.env.CMUX_ACP_NAME = 'My Agent';
+      const opts = parseCliArgs([]);
+      assert.equal(opts.acpName, 'My Agent');
+    });
+
+    it('CLI flags override env vars', () => {
+      process.env.CMUX_ACP_COMMAND = 'env-agent';
+      const opts = parseCliArgs(['--acp-command', 'cli-agent']);
+      assert.equal(opts.acpCommand, 'cli-agent');
+    });
+
+    it('returns empty acpCommand by default', () => {
+      const opts = parseCliArgs([]);
+      assert.equal(opts.acpCommand, '');
+      assert.deepEqual(opts.acpArgs, []);
+      assert.equal(opts.acpName, '');
+    });
   });
 });

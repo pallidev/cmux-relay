@@ -10,6 +10,9 @@ export interface CliOptions {
   tlsKey: string;
   apiToken: string;
   relayUrl: string;
+  acpCommand: string;
+  acpArgs: string[];
+  acpName: string;
 }
 
 /**
@@ -24,8 +27,12 @@ export function parseCliArgs(argv: string[] = process.argv.slice(2)): CliOptions
   const tlsKey = getArg(argv, '--tls-key') || process.env.CMUX_RELAY_TLS_KEY || '';
   const apiToken = getArg(argv, '--token') || process.env.CMUX_RELAY_TOKEN || '';
   const relayUrl = getArg(argv, '--relay-url') || process.env.CMUX_RELAY_URL || 'wss://relay.gateway.myaddr.io/ws/agent';
+  const acpCommand = getArg(argv, '--acp-command') || process.env.CMUX_ACP_COMMAND || '';
+  const acpArgsRaw = getArg(argv, '--acp-args') || process.env.CMUX_ACP_ARGS || '';
+  const acpArgs = acpArgsRaw ? acpArgsRaw.split(',') : [];
+  const acpName = getArg(argv, '--acp-name') || process.env.CMUX_ACP_NAME || acpCommand.split('/').pop() || '';
 
-  return { isLocal, port, host, cmuxSocket, tlsCert, tlsKey, apiToken, relayUrl };
+  return { isLocal, port, host, cmuxSocket, tlsCert, tlsKey, apiToken, relayUrl, acpCommand, acpArgs, acpName };
 }
 
 /**

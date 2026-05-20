@@ -5,6 +5,7 @@ import { CmuxClient } from './cmux-client.js';
 import { PtyCapture } from './pty-capture.js';
 import { InputHandler } from './input-handler.js';
 import { SessionStore } from './session-store.js';
+import { AcpManager } from './acp-manager.js';
 import { RelayConnection } from './relay-connection.js';
 import { AgentE2ECrypto } from './e2e-crypto.js';
 import { handleClientMessage } from './message-handler.js';
@@ -12,6 +13,7 @@ import { SyncEngine } from './sync-engine.js';
 import type { Broadcaster } from './sync-engine.js';
 import type { MessageHandlerDeps } from './message-handler.js';
 import type { CliOptions } from './cli.js';
+import type { AcpAgentConfig } from '@cmux-relay/shared';
 import qrcode from 'qrcode-terminal';
 
 const AUTH_DIR = join(homedir(), '.cmux-relay');
@@ -154,6 +156,22 @@ export async function runCloudMode(opts: CliOptions, savedAuth: AuthData | null)
   syncEngine.startPeriodicSync(5000);
   syncEngine.startPollNotifications(2000);
 
+  // Initialize ACP agent if configured
+  let acpManager: AcpManager | undefined;
+  if (opts.acpCommand) {
+    const acpConfig: AcpAgentConfig = {
+      command: opts.acpCommand,
+      args: opts.acpArgs,
+      name: opts.acpName,
+    };
+    acpManager = new AcpManager(acpConfig, (msg) => {
+      cloudBroadcaster.broadcast(msg);
+    });
+    msgDeps.acpManager = acpManager;
+    await acpManager.initialize();
+    console.log(`[acp] Agent ready: ${opts.acpName || opts.acpCommand}`);
+  }
+
   let cloudPtySurfaceId: string | null = null;
 
   const getFirstTerminalSurfaceId = (): string | null => {
@@ -195,6 +213,7 @@ export async function runCloudMode(opts: CliOptions, savedAuth: AuthData | null)
   // Replace early handler with full cleanup handler
   const shutdown = () => {
     console.log('\nShutting down...');
+    acpManager?.dispose();
     syncEngine.stop();
     ptyCapture.stop();
     relay.disconnect();

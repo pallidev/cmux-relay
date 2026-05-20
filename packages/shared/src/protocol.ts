@@ -45,6 +45,31 @@ export interface WebRTCIceCandidateMessage {
   mid: string;
 }
 
+// ─── ACP Client → Agent ───
+
+export interface AcpNewSessionMessage {
+  type: 'acp.new_session';
+  cwd?: string;
+}
+
+export interface AcpPromptMessage {
+  type: 'acp.prompt';
+  sessionId: string;
+  text: string;
+}
+
+export interface AcpPermissionResponseMessage {
+  type: 'acp.permission_response';
+  sessionId: string;
+  requestId: string;
+  outcome: string;
+}
+
+export interface AcpCancelMessage {
+  type: 'acp.cancel';
+  sessionId: string;
+}
+
 export type ClientOutgoing =
   | AuthMessage
   | WorkspacesListMessage
@@ -54,6 +79,10 @@ export type ClientOutgoing =
   | E2EInitMessage
   | WebRTCAnswerMessage
   | WebRTCIceCandidateMessage
+  | AcpNewSessionMessage
+  | AcpPromptMessage
+  | AcpPermissionResponseMessage
+  | AcpCancelMessage
   | { type: 'ping' };
 
 // ─── Server → Client ───
@@ -125,6 +154,42 @@ export interface WebRTCIceCandidateToClientMessage {
   mid: string;
 }
 
+// ─── ACP Agent → Client ───
+
+export interface AcpAgentStatusMessage {
+  type: 'acp.agent_status';
+  status: 'starting' | 'ready' | 'error';
+  agentName: string;
+  error?: string;
+}
+
+export interface AcpSessionCreatedMessage {
+  type: 'acp.session.created';
+  sessionId: string;
+  capabilities: unknown;
+}
+
+export interface AcpSessionUpdateMessage {
+  type: 'acp.session_update';
+  sessionId: string;
+  update: unknown;
+}
+
+export interface AcpPermissionRequestMessage {
+  type: 'acp.permission_request';
+  sessionId: string;
+  requestId: string;
+  toolName: string;
+  toolCallId: string;
+  options: unknown[];
+}
+
+export interface AcpSessionCompleteMessage {
+  type: 'acp.session_complete';
+  sessionId: string;
+  stopReason: string;
+}
+
 export type RelayToClient =
   | RelayOutputMessage
   | RelayWorkspacesMessage
@@ -136,7 +201,12 @@ export type RelayToClient =
   | E2EAckMessage
   | WebRTCOfferMessage
   | WebRTCAnswerToClientMessage
-  | WebRTCIceCandidateToClientMessage;
+  | WebRTCIceCandidateToClientMessage
+  | AcpAgentStatusMessage
+  | AcpSessionCreatedMessage
+  | AcpSessionUpdateMessage
+  | AcpPermissionRequestMessage
+  | AcpSessionCompleteMessage;
 
 // ─── Agent → Relay ───
 

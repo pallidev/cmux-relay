@@ -285,27 +285,27 @@ export class AcpManager {
         const latest = sorted[0];
 
         try {
-          // Try resumeSession first (no history replay, faster)
-          await this.connection.resumeSession({
+          // Prefer loadSession — replays conversation history through sessionUpdate
+          await this.connection.loadSession({
             sessionId: latest.sessionId,
             cwd: process.cwd(),
+            mcpServers: [],
           });
           this.acpSessionId = latest.sessionId;
-          console.log(`[acp] Resumed session: ${this.acpSessionId} (${latest.title ?? 'untitled'})`);
+          console.log(`[acp] Loaded session with history: ${this.acpSessionId} (${latest.title ?? 'untitled'})`);
           return;
         } catch {
-          // resumeSession not supported, try loadSession
+          // loadSession not supported, try resumeSession (no history)
           try {
-            await this.connection.loadSession({
+            await this.connection.resumeSession({
               sessionId: latest.sessionId,
               cwd: process.cwd(),
-              mcpServers: [],
             });
             this.acpSessionId = latest.sessionId;
-            console.log(`[acp] Loaded session: ${this.acpSessionId} (${latest.title ?? 'untitled'})`);
+            console.log(`[acp] Resumed session (no history): ${this.acpSessionId} (${latest.title ?? 'untitled'})`);
             return;
           } catch {
-            // loadSession also failed, fall through to newSession
+            // Both failed, fall through to newSession
           }
         }
       }

@@ -89,6 +89,7 @@ export function MobileLayout({ relayWsUrl, onDisconnect, onRetry }: { relayWsUrl
     sendPrompt: acpSendPrompt,
     respondToPermission: acpRespondPermission,
     cancel: acpCancel,
+    newSession: acpNewSession,
   } = useAcpChat(sendRaw);
 
   // Wire ACP messages from useRelay to useAcpChat
@@ -439,6 +440,7 @@ export function MobileLayout({ relayWsUrl, onDisconnect, onRetry }: { relayWsUrl
               onSendPrompt={acpSendPrompt}
               onCancel={acpCancel}
               onPermissionResponse={acpRespondPermission}
+              onNewSession={acpNewSession}
             />
           </div>
         ) : (

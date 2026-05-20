@@ -219,8 +219,8 @@ export class RelayConnection {
 
     const data = JSON.stringify(finalPayload);
 
-    // Per-client delivery: notifications broadcast via relay (enables push fallback), output via P2P + relay fallback
-    if (payload.type === 'notifications') {
+    // Broadcast messages and ACP messages go to all clients via relay
+    if (payload.type === 'notifications' || payload.type?.startsWith('acp.')) {
       this.sendBroadcast(finalPayload);
       return;
     }

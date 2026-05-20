@@ -40,6 +40,7 @@ export class AcpManager {
   private isPrompting = false;
   private agentStatus: 'starting' | 'ready' | 'error' = 'starting';
   private agentError: string | undefined;
+  private sessionHistory: SessionUpdate[] = [];
 
   constructor(config: AcpAgentConfig, sendToWeb: SendToWeb) {
     this.config = config;
@@ -128,11 +129,20 @@ export class AcpManager {
         sessionId: this.acpSessionId,
         capabilities: {},
       });
+      // Replay session history so new clients see the conversation
+      for (const update of this.sessionHistory) {
+        this.sendToWeb({
+          type: 'acp.session_update',
+          sessionId: this.acpSessionId,
+          update,
+        });
+      }
     }
   }
 
   private async handleSessionUpdate(params: SessionNotification): Promise<void> {
     if (!this.acpSessionId) return;
+    this.sessionHistory.push(params.update);
     this.sendToWeb({
       type: 'acp.session_update',
       sessionId: this.acpSessionId,
@@ -244,6 +254,7 @@ export class AcpManager {
         mcpServers: [],
       });
       this.acpSessionId = result.sessionId;
+      this.sessionHistory = [];
 
       this.sendToWeb({
         type: 'acp.session.created',

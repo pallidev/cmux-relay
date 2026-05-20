@@ -11,6 +11,9 @@ import { getRelayWsUrl } from '../lib/helpers';
 import { registerServiceWorker, subscribePush, getPendingNavigation, onNavigateFromPush } from '../lib/push';
 import type { CmuxNotification } from '@cmux-relay/shared';
 
+type SurfaceViewMode = "terminal" | "chat";
+type SurfaceViewMap = Record<string, SurfaceViewMode>;
+
 const RELAY_URL = getRelayWsUrl();
 
 export function MobileLayout({ relayWsUrl, onDisconnect, onRetry }: { relayWsUrl?: string; onDisconnect?: () => void; onRetry?: () => void }) {
@@ -96,13 +99,21 @@ export function MobileLayout({ relayWsUrl, onDisconnect, onRetry }: { relayWsUrl
   onAcpMessage(useCallback((msg) => handleAcpMessage(msg), [handleAcpMessage]));
 
   const hasAcp = acpAgentStatus != null;
-  const [activeView, setActiveView] = useState<'terminal' | 'chat'>(() =>
-    (localStorage.getItem('cmux-relay-view') as 'terminal' | 'chat') || 'terminal'
-  );
-  const setView = (v: 'terminal' | 'chat') => {
-    setActiveView(v);
-    localStorage.setItem('cmux-relay-view', v);
+  const [surfaceViews, setSurfaceViews] = useState<SurfaceViewMap>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("cmux-relay-surface-views") || "{}");
+    } catch {
+      return {} as SurfaceViewMap;
+    }
+  });
+  const setSurfaceView = (surfaceId: string, view: SurfaceViewMode) => {
+    setSurfaceViews(prev => {
+      const next = { ...prev, [surfaceId]: view };
+      localStorage.setItem("cmux-relay-surface-views", JSON.stringify(next));
+      return next;
+    });
   };
+  const activeSurfaceView: SurfaceViewMode = "terminal";
 
   const connectedAtRef = useRef<number | undefined>(undefined);
   if (phase === 'connected' && connectedAtRef.current === undefined) {
@@ -357,6 +368,7 @@ export function MobileLayout({ relayWsUrl, onDisconnect, onRetry }: { relayWsUrl
     || null;
   const activeSurface = wsSurfaces.find(s => s.id === activeSurfaceId);
   activeSurfaceIdRef.current = activeSurfaceId;
+  const currentSurfaceView: SurfaceViewMode = (activeSurfaceId && surfaceViews[activeSurfaceId]) || "terminal";
 
   // Workspace navigation
   const goWorkspace = (direction: -1 | 1) => {
@@ -405,31 +417,48 @@ export function MobileLayout({ relayWsUrl, onDisconnect, onRetry }: { relayWsUrl
           onEnableNotifications={handleEnableNotifications}
         />
 
-        {/* Tab bar: surfaces in current workspace */}
-        {activeView === 'terminal' && wsSurfaces.length > 1 && (
+        {/* Tab bar: surfaces in current workspace with per-surface terminal/chat toggle */}
+        {wsSurfaces.length > 0 && (
           <div className="mobile-tab-bar">
-            {wsSurfaces.map((s) => (
-              <button
-                key={s.id}
-                className={`mobile-tab ${s.id === activeSurfaceId ? 'active' : ''}`}
-                onClick={() => handleTabClick(s.id)}
-              >
-                {s.title || s.id.slice(0, 8)}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* View tabs: Terminal / Chat */}
-        {hasAcp && (
-          <div className="view-tabs">
-            <button className={`view-tab ${activeView === 'terminal' ? 'active' : ''}`} onClick={() => setView('terminal')}>Terminal</button>
-            <button className={`view-tab ${activeView === 'chat' ? 'active' : ''}`} onClick={() => setView('chat')}>Chat</button>
+            {wsSurfaces.map((s) => {
+              const sView = surfaceViews[s.id] || 'terminal';
+              const isActive = s.id === activeSurfaceId;
+              return (
+                <button
+                  key={s.id}
+                  className={`mobile-tab ${isActive ? 'active' : ''}`}
+                  onClick={() => handleTabClick(s.id)}
+                  style={isActive && hasAcp ? { position: 'relative', paddingRight: 24 } : undefined}
+                >
+                  {s.title || s.id.slice(0, 8)}
+                  {isActive && hasAcp && (
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSurfaceView(s.id, sView === 'terminal' ? 'chat' : 'terminal');
+                      }}
+                      style={{
+                        position: 'absolute',
+                        right: 4,
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        fontSize: 10,
+                        color: sView === 'chat' ? '#89b4fa' : '#6c7086',
+                        cursor: 'pointer',
+                        padding: '0 2px',
+                      }}
+                    >
+                      {sView === 'chat' ? 'T' : '💬'}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         )}
 
         {/* Content area */}
-        {activeView === 'chat' && hasAcp ? (
+        {currentSurfaceView === "chat" && hasAcp ? (
           <div className="mobile-terminal-area">
             <ChatView
               messages={acpMessages}

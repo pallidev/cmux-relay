@@ -24,6 +24,7 @@ import type {
 } from '@agentclientprotocol/sdk';
 import type { AcpAgentConfig } from '@cmux-relay/shared';
 import type { RelayToClient } from '@cmux-relay/shared';
+import type { CmuxClient } from './cmux-client.js';
 
 interface SurfaceSession {
   acpSessionId: string;
@@ -37,6 +38,7 @@ export interface AcpSender {
 }
 
 const PERMISSION_TIMEOUT_MS = 60_000;
+const MAX_TERMINAL_CONTEXT_CHARS = 4000;
 const RELAY_DIR = join(homedir(), '.cmux-relay');
 const HISTORY_DIR = join(RELAY_DIR, 'acp-history');
 const LEGACY_HISTORY_FILE = join(RELAY_DIR, 'acp-history.json');
@@ -46,6 +48,7 @@ export class AcpManager {
   private connection: ClientSideConnection | null = null;
   private sender: AcpSender;
   private config: AcpAgentConfig;
+  private cmux: CmuxClient | null;
   private sessions = new Map<string, SurfaceSession>(); // surfaceId → session
   private acpToSurface = new Map<string, string>(); // acpSessionId → surfaceId
   private pendingPermissions = new Map<string, {
@@ -57,9 +60,10 @@ export class AcpManager {
   private agentError: string | undefined;
   private agentCapabilities: unknown = {};
 
-  constructor(config: AcpAgentConfig, sender: AcpSender) {
+  constructor(config: AcpAgentConfig, sender: AcpSender, cmux?: CmuxClient) {
     this.config = config;
     this.sender = sender;
+    this.cmux = cmux ?? null;
   }
 
   async initialize(): Promise<void> {
@@ -440,13 +444,31 @@ export class AcpManager {
       console.warn('[acp] Prompt already in progress for this surface, ignoring');
       return;
     }
+
+    // Inject terminal context if available
+    let promptText = text;
+    if (this.cmux) {
+      try {
+        const terminal = await this.cmux.readTerminalText(surfaceId);
+        if (terminal) {
+          const truncated = terminal.length > MAX_TERMINAL_CONTEXT_CHARS
+            ? '[...truncated...]\n' + terminal.slice(-MAX_TERMINAL_CONTEXT_CHARS)
+            : terminal;
+          promptText = `<terminal-context>\n${truncated}\n</terminal-context>\n\n${text}`;
+          console.log(`[acp] Injected terminal context (${terminal.length} chars) for surface ${surfaceId}`);
+        }
+      } catch {
+        // Terminal read failed — send prompt without context
+      }
+    }
+
     console.log(`[acp] Sending prompt to session ${session.acpSessionId}`);
 
     session.isPrompting = true;
     try {
       const result: PromptResponse = await this.connection.prompt({
         sessionId: session.acpSessionId,
-        prompt: [{ type: 'text', text }],
+        prompt: [{ type: 'text', text: promptText }],
       });
 
       this.sender.sendToSurface(surfaceId, {

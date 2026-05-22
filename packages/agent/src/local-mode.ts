@@ -142,7 +142,7 @@ export async function runLocalMode(opts: CliOptions): Promise<void> {
     acpManager = new AcpManager(acpConfig, {
       broadcast: (msg) => localBroadcaster.broadcast(msg),
       sendToSurface: (surfaceId, msg) => localBroadcaster.sendToSurface(surfaceId, msg),
-    });
+    }, cmux);
     deps.acpManager = acpManager;
     await acpManager.initialize();
     console.log(`[acp] Agent ready: ${opts.acpName || opts.acpCommand}`);

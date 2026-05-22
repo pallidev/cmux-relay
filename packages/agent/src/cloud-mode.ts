@@ -168,7 +168,7 @@ export async function runCloudMode(opts: CliOptions, savedAuth: AuthData | null)
     acpManager = new AcpManager(acpConfig, {
       broadcast: (msg) => cloudBroadcaster.broadcast(msg),
       sendToSurface: (_surfaceId, msg) => cloudBroadcaster.broadcast(msg),
-    });
+    }, cmux);
     msgDeps.acpManager = acpManager;
     await acpManager.initialize();
     console.log(`[acp] Agent ready: ${opts.acpName || opts.acpCommand}`);

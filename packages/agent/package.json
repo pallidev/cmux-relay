@@ -1,6 +1,6 @@
 {
   "name": "cmux-relay-agent",
-  "version": "0.3.12",
+  "version": "0.3.13",
   "description": "Stream cmux terminal sessions to your phone — real-time monitoring for AI coding agents",
   "keywords": [
     "cmux",

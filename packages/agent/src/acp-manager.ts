@@ -163,10 +163,10 @@ export class AcpManager {
             ss.history = persisted.history;
             console.log(`[acp] Resumed session for surface ${surfaceId}: ${persisted.sessionId}`);
           } catch {
-            // Both failed, create new session
+            // Persisted session no longer exists in agent — try listing available sessions
             this.sessions.delete(surfaceId);
             this.acpToSurface.delete(persisted.sessionId);
-            await this.createNewSession(surfaceId, cwd);
+            await this.tryLoadExistingSession(surfaceId, cwd);
           }
         }
       } else {

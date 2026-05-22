@@ -398,7 +398,7 @@ describe('cmux-relay integration', () => {
 
   // ─── Notifications ───
 
-  it('client receives existing notifications on auth', async () => {
+  it('stored notifications are NOT replayed on auth (real-time only)', async () => {
     store.updateNotifications([
       {
         id: 'notif-1',
@@ -414,13 +414,14 @@ describe('cmux-relay integration', () => {
     const ws = await connect(port);
     send(ws, { type: 'auth', payload: { token: signToken('client') } });
 
-    const msg = await waitForMessage(ws, 'notifications');
-    assert.ok(Array.isArray(msg.payload.notifications));
-    assert.equal(msg.payload.notifications.length, 1);
-    assert.equal(msg.payload.notifications[0].title, 'Claude Code');
-    assert.equal(msg.payload.notifications[0].subtitle, 'Waiting');
-    assert.equal(msg.payload.notifications[0].surfaceId, 'surf-notif');
-    assert.equal(msg.payload.notifications[0].workspaceId, 'ws-notif');
+    // Auth completes — notifications are NOT replayed (real-time only)
+    await waitForMessage(ws, 'workspaces');
+
+    const msg = await Promise.race([
+      waitForMessage(ws, 'notifications'),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 500)),
+    ]);
+    assert.equal(msg, null, 'Stored notifications should NOT be sent on auth');
 
     await disconnect(ws);
     store.updateNotifications([]);

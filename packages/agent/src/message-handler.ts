@@ -84,12 +84,12 @@ export async function handleClientMessage(
     }
 
     case 'acp.new_session': {
-      await deps.acpManager?.handleNewSession(msg.cwd);
+      await deps.acpManager?.handleNewSession(msg.surfaceId, msg.cwd);
       break;
     }
 
     case 'acp.prompt': {
-      await deps.acpManager?.handlePrompt(msg.text);
+      await deps.acpManager?.handlePrompt(msg.text, msg.surfaceId);
       break;
     }
 
@@ -99,7 +99,7 @@ export async function handleClientMessage(
     }
 
     case 'acp.cancel': {
-      await deps.acpManager?.handleCancel();
+      await deps.acpManager?.handleCancel(msg.surfaceId);
       break;
     }
   }

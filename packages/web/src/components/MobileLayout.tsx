@@ -80,7 +80,7 @@ export function MobileLayout({ relayWsUrl, onDisconnect, onRetry }: { relayWsUrl
     onAcpMessage,
   } = useRelay(relayUrl ? { url: relayUrl, e2eEnabled: true, onSessionExpired: onRetry } : { url: '' });
 
-  // ACP chat hook
+  // ACP chat hook — activeSurfaceId에 해당하는 서피스의 상태 반환
   const {
     messages: acpMessages,
     isProcessing: acpProcessing,
@@ -92,7 +92,9 @@ export function MobileLayout({ relayWsUrl, onDisconnect, onRetry }: { relayWsUrl
     sendPrompt: acpSendPrompt,
     respondToPermission: acpRespondPermission,
     cancel: acpCancel,
-  } = useAcpChat(sendRaw);
+    ensureSession: acpEnsureSession,
+    getSurfaceHasSession,
+  } = useAcpChat(sendRaw, selectedSurfaceId);
 
   // Wire ACP messages from useRelay to useAcpChat
   onAcpMessage(useCallback((msg) => handleAcpMessage(msg), [handleAcpMessage]));
@@ -434,7 +436,9 @@ export function MobileLayout({ relayWsUrl, onDisconnect, onRetry }: { relayWsUrl
                     <span
                       onClick={(e) => {
                         e.stopPropagation();
-                        setSurfaceView(s.id, sView === 'terminal' ? 'chat' : 'terminal');
+                        const nextView = sView === 'terminal' ? 'chat' : 'terminal';
+                        if (nextView === 'chat') acpEnsureSession(s.id);
+                        setSurfaceView(s.id, nextView);
                       }}
                       style={{
                         position: 'absolute',
@@ -465,6 +469,7 @@ export function MobileLayout({ relayWsUrl, onDisconnect, onRetry }: { relayWsUrl
               agentStatus={acpAgentStatus}
               agentName={acpAgentName}
               permissionRequest={acpPermission}
+              canSend={!!acpSessionId}
               onSendPrompt={acpSendPrompt}
               onCancel={acpCancel}
               onPermissionResponse={acpRespondPermission}

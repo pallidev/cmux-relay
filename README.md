@@ -11,11 +11,13 @@
   <a href="https://github.com/pallidev/cmux-relay/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License" /></a>
   <img src="https://img.shields.io/badge/platform-macOS-black?logo=apple" alt="Platform" />
   <img src="https://img.shields.io/badge/terminal-cmux-89b4fa" alt="cmux" />
+  <img src="https://img.shields.io/badge/ACP-supported-89dceb?logo=agent" alt="ACP" />
 </p>
 
 <p align="center">
   <b>Quick start:</b><br/>
-  <code>npx cmux-relay-agent</code>
+  <code>npx cmux-relay-agent</code><br/>
+  <code>npx cmux-relay-agent --acp-command claude-agent-acp</code> <sup>with AI chat</sup>
 </p>
 
 <p align="center">
@@ -29,6 +31,7 @@
 You run AI coding agents like Claude Code in [cmux](https://github.com/manaflow-ai/cmux) (a Ghostty-based macOS terminal). When you step away from your desk, you still want to:
 
 - **Monitor** agent progress in real-time from your phone
+- **Chat with AI agents** directly from mobile via ACP (Agent Client Protocol)
 - **Send commands** when an agent needs your input
 - **Switch** between multiple terminal sessions
 - **Get notified** when an agent completes or encounters an error
@@ -61,7 +64,26 @@ https://cmux.gateway.myaddr.io
 
 **What you need:** cmux, Node.js 20+. Nothing else.
 
-### 2. Local Mode (LAN Direct)
+### 2. With AI Agent Chat (ACP)
+
+Enable direct chat with your AI coding agent from mobile. Uses the [Agent Client Protocol](https://agentclientprotocol.com/) — works with any ACP-compatible agent.
+
+```bash
+npx cmux-relay-agent --acp-command claude-agent-acp
+```
+
+This spawns an ACP agent subprocess alongside your terminal streaming. On your phone:
+
+1. Tap the **chat icon** on any terminal tab
+2. Send messages directly to the AI agent
+3. See real-time responses, tool calls, and permission requests
+4. Each terminal tab gets its own independent chat session
+
+**Supported agents:** `claude-agent-acp`, `codex-acp`, and any ACP-compatible agent.
+
+**What you need:** An ACP-compatible agent installed (`npm install -g @agentclientprotocol/claude-agent-acp`).
+
+### 3. Local Mode (LAN Direct)
 
 Run without any cloud relay. The agent starts a local WebSocket server — works within your LAN.
 
@@ -77,7 +99,7 @@ Then open `http://<your-mac-ip>:8080` in a browser on the same network.
 
 **What you need:** cmux, Node.js 20+, pnpm. No internet required.
 
-### 3. Self-Hosted (Own Relay Server)
+### 4. Self-Hosted (Own Relay Server)
 
 Run your own relay server for full control — useful for teams, private networks, or custom domains.
 
@@ -129,6 +151,11 @@ Or build and publish the agent package with your relay URL as default.
 │                     ║                     ▼         ║
 │                     ╚═══════════════════════════════╝
 │                              P2P Direct
+│                          │
+│         ┌── ACP Agent ───┤
+│         │  (claude-agent  │
+│         │   -acp, etc.)   │
+│         └────────────────┘
 └──────────────────────────┘
          │                                     │
          └──── WebRTC DataChannel (P2P) ──────┘
@@ -137,11 +164,25 @@ Or build and publish the agent package with your relay URL as default.
                      │  Web Client           │
                      │  (any browser)        │
                      │  • xterm.js           │
+                     │  • AI Chat (ACP)      │
                      │  • Mobile UX          │
                      └──────────────────────┘
 ```
 
 The agent connects outbound to the relay — no inbound ports needed on your Mac. Terminal data flows **directly** between agent and browser via WebRTC P2P. The relay handles only authentication and signaling (SDP/ICE exchange). Falls back to relay-forwarded WebSocket if P2P fails.
+
+### ACP Chat Architecture
+
+```
+Web Client (Browser)
+  │
+  ├─ Terminal View ──── xterm.js ─── cmux socket
+  │
+  └─ Chat View ──── WS/WebRTC ─── cmux-relay-agent ─── stdio JSON-RPC ─── ACP Agent
+                                                               (claude-agent-acp)
+```
+
+Each terminal tab (surface) gets its own independent ACP session. Chat sessions are created lazily — only when you switch to chat view on a tab.
 
 ### Local Mode
 
@@ -164,9 +205,9 @@ No relay server — the agent runs its own WebSocket server. Only works on the s
 cmux-relay/
 ├── packages/
 │   ├── shared/     # Protocol types and message definitions (zero-dependency)
-│   ├── agent/      # Runs on your Mac — cmux client + PTY capture + relay connection
+│   ├── agent/      # Runs on your Mac — cmux client + PTY capture + relay connection + ACP bridge
 │   ├── relay/      # Runs on server — session matching + auth + data bridge
-│   └── web/        # React + xterm.js web client
+│   └── web/        # React + xterm.js web client with ACP chat UI
 ├── tests/          # Integration tests
 └── package.json    # pnpm workspace root
 ```
@@ -174,6 +215,7 @@ cmux-relay/
 | Who uses what | Packages needed |
 |---|---|
 | Agent user (`npx cmux-relay-agent`) | `agent` (published to npm, includes `shared`) |
+| Agent user + AI chat (`--acp-command`) | `agent` + ACP-compatible agent installed |
 | Local mode (`--local`) | `agent` + `shared` (from source) |
 | Self-hosted | All packages (`agent` + `relay` + `web` + `shared`) |
 
@@ -190,11 +232,23 @@ cmux-relay/
 - **Pairing code flow** — One-click GitHub login to link your agent
 - **Auto-reconnect** — Exponential backoff with session recovery
 
+### AI Agent Chat (ACP)
+
+- **Mobile AI chat** — Send prompts to Claude Code, Codex CLI, or any ACP-compatible agent from your phone
+- **Per-surface sessions** — Each terminal tab has its own independent chat conversation
+- **Real-time streaming** — See agent responses as they're generated, token by token
+- **Tool call tracking** — Visual status for every tool call (reading files, running commands, etc.)
+- **Permission requests** — Approve or deny agent tool usage directly from mobile
+- **Session persistence** — Chat history is saved and restored on reconnect
+- **Agent-agnostic** — Works with any ACP-compatible agent (`claude-agent-acp`, `codex-acp`, etc.)
+- **Lazy session creation** — Chat sessions are created only when you switch to chat view
+
 ### Mobile Experience
 
 - **Full-screen terminal** — Optimized for touch devices
 - **Swipe navigation** — Switch workspaces with left/right swipe
 - **Tab bar** — Switch between surfaces in a workspace
+- **Terminal / Chat toggle** — Per-tab toggle between terminal view and AI chat
 - **Auto-redirect** — Login once, go straight to your terminal
 
 ### Notifications
@@ -310,6 +364,9 @@ npx cmux-relay-agent [options]
 | Flag | Env Variable | Default | Description |
 |------|-------------|---------|-------------|
 | `--relay-url` | `CMUX_RELAY_URL` | `wss://relay.gateway.myaddr.io/ws/agent` | Relay server URL |
+| `--acp-command` | `CMUX_ACP_COMMAND` | — | ACP agent command (e.g. `claude-agent-acp`) |
+| `--acp-args` | `CMUX_ACP_ARGS` | — | ACP agent arguments (comma-separated) |
+| `--acp-name` | — | ACP command | Display name for the ACP agent |
 | `--token` | `CMUX_RELAY_TOKEN` | — | API token (auto-saved after pairing) |
 | `--local` | — | — | Run in local mode (direct WebSocket) |
 | `--port` | `CMUX_RELAY_PORT` | `8080` | Local mode server port |
@@ -317,6 +374,10 @@ npx cmux-relay-agent [options]
 | `--socket` | `CMUX_SOCKET_PATH` | `~/Library/Application Support/cmux/cmux.sock` | cmux Unix socket path |
 | `--tls-cert` | `CMUX_RELAY_TLS_CERT` | — | TLS certificate file |
 | `--tls-key` | `CMUX_RELAY_TLS_KEY` | — | TLS private key file |
+
+## Keywords
+
+`cmux` `terminal` `streaming` `mobile` `webrtc` `p2p` `xterm` `ghostty` `macos` `remote` `monitoring` `ai-agent` `claude-code` `codex` `agent-client-protocol` `acp` `developer-tools` `real-time` `terminal-emulator` `ssh-alternative` `pwa` `push-notifications` `e2e-encryption`
 
 ## Development
 

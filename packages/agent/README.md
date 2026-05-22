@@ -65,7 +65,7 @@ See the [full repository](https://github.com/pallidev/cmux-relay) for relay serv
 
 ## ACP Chat Mode
 
-Interact with AI coding agents directly from your phone via the [Agent Client Protocol](https://github.com/AcpProtocol/acp). Supports any ACP-compatible agent — Claude Code, Codex, and more.
+Interact with AI coding agents directly from your phone via the [Agent Client Protocol](https://agentclientprotocol.com/). Supports any ACP-compatible agent — Claude Code, Codex, and more.
 
 ```bash
 # Claude Code

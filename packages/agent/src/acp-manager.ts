@@ -1,5 +1,5 @@
 import { ChildProcess, spawn } from 'node:child_process';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
 import { Writable, Readable } from 'node:stream';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -25,30 +25,41 @@ import type {
 import type { AcpAgentConfig } from '@cmux-relay/shared';
 import type { RelayToClient } from '@cmux-relay/shared';
 
-type SendToWeb = (msg: RelayToClient) => void;
+interface SurfaceSession {
+  acpSessionId: string;
+  history: SessionUpdate[];
+  isPrompting: boolean;
+}
+
+export interface AcpSender {
+  broadcast: (msg: RelayToClient) => void;
+  sendToSurface: (surfaceId: string, msg: RelayToClient) => void;
+}
 
 const PERMISSION_TIMEOUT_MS = 60_000;
-const HISTORY_DIR = join(homedir(), '.cmux-relay');
-const HISTORY_FILE = join(HISTORY_DIR, 'acp-history.json');
+const RELAY_DIR = join(homedir(), '.cmux-relay');
+const HISTORY_DIR = join(RELAY_DIR, 'acp-history');
+const LEGACY_HISTORY_FILE = join(RELAY_DIR, 'acp-history.json');
 
 export class AcpManager {
   private agentProcess: ChildProcess | null = null;
   private connection: ClientSideConnection | null = null;
-  private acpSessionId: string | null = null;
-  private sendToWeb: SendToWeb;
+  private sender: AcpSender;
   private config: AcpAgentConfig;
+  private sessions = new Map<string, SurfaceSession>(); // surfaceId → session
+  private acpToSurface = new Map<string, string>(); // acpSessionId → surfaceId
   private pendingPermissions = new Map<string, {
     resolve: (response: RequestPermissionResponse) => void;
     timer: ReturnType<typeof setTimeout>;
+    surfaceId: string;
   }>();
-  private isPrompting = false;
   private agentStatus: 'starting' | 'ready' | 'error' = 'starting';
   private agentError: string | undefined;
-  private sessionHistory: SessionUpdate[] = [];
+  private agentCapabilities: unknown = {};
 
-  constructor(config: AcpAgentConfig, sendToWeb: SendToWeb) {
+  constructor(config: AcpAgentConfig, sender: AcpSender) {
     this.config = config;
-    this.sendToWeb = sendToWeb;
+    this.sender = sender;
   }
 
   async initialize(): Promise<void> {
@@ -91,23 +102,11 @@ export class AcpManager {
         },
       });
 
+      this.agentCapabilities = initResult.agentCapabilities;
+
       console.log(`[acp] Initialized: protocol v${initResult.protocolVersion}, agent=${initResult.agentInfo?.name ?? this.config.name}`);
 
-      // Load persisted history before creating/resuming session
-      await this.loadPersistedHistory();
-
-      // Try to resume the most recent session, fall back to new session
-      await this.resumeOrCreateSession();
-
-      this.sendToWeb({
-        type: 'acp.session.created',
-        sessionId: this.acpSessionId!,
-        capabilities: initResult.agentCapabilities,
-      });
-
       this.sendStatus('ready');
-
-      console.log(`[acp] Session active: ${this.acpSessionId}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[acp] Initialization failed: ${message}`);
@@ -118,7 +117,7 @@ export class AcpManager {
 
   private sendStatus(status: 'starting' | 'ready' | 'error'): void {
     this.agentStatus = status;
-    this.sendToWeb({
+    this.sender.broadcast({
       type: 'acp.agent_status',
       status,
       agentName: this.config.name,
@@ -126,21 +125,179 @@ export class AcpManager {
     });
   }
 
-  /** Resend current ACP state to newly connected clients. */
+  /** Ensure a session exists for the given surface. Creates one lazily if needed. */
+  async ensureSession(surfaceId: string, cwd?: string): Promise<void> {
+    if (this.sessions.has(surfaceId)) return;
+    if (!this.connection) return;
+
+    try {
+      // Try to resume a persisted session for this surface
+      const persisted = await this.loadSurfaceHistory(surfaceId);
+      if (persisted?.sessionId) {
+        try {
+          // Set mapping before loadSession so sessionUpdate callbacks during replay route correctly
+          const acpSessionId = persisted.sessionId;
+          this.acpToSurface.set(acpSessionId, surfaceId);
+          const surfaceSession: SurfaceSession = {
+            acpSessionId,
+            history: [],
+            isPrompting: false,
+          };
+          this.sessions.set(surfaceId, surfaceSession);
+
+          await this.connection.loadSession({
+            sessionId: acpSessionId,
+            cwd: cwd || process.cwd(),
+            mcpServers: [],
+          });
+          console.log(`[acp] Loaded session for surface ${surfaceId}: ${acpSessionId} (${persisted.history.length} history entries from disk)`);
+        } catch {
+          // loadSession failed, try resume
+          try {
+            await this.connection.resumeSession({
+              sessionId: persisted.sessionId,
+              cwd: cwd || process.cwd(),
+            });
+            // Restore history from disk since resumeSession doesn't replay
+            const ss = this.sessions.get(surfaceId)!;
+            ss.history = persisted.history;
+            console.log(`[acp] Resumed session for surface ${surfaceId}: ${persisted.sessionId}`);
+          } catch {
+            // Both failed, create new session
+            this.sessions.delete(surfaceId);
+            this.acpToSurface.delete(persisted.sessionId);
+            await this.createNewSession(surfaceId, cwd);
+          }
+        }
+      } else {
+        // No per-surface history — try to load the most recent agent session
+        // (first surface to request gets the existing conversation)
+        await this.tryLoadExistingSession(surfaceId, cwd);
+      }
+
+      // Notify web client about the new session
+      const session = this.sessions.get(surfaceId);
+      if (session) {
+        this.sender.sendToSurface(surfaceId, {
+          type: 'acp.session.created',
+          sessionId: session.acpSessionId,
+          surfaceId,
+          capabilities: this.agentCapabilities,
+        });
+
+        // Replay any loaded history
+        for (const update of session.history) {
+          this.sender.sendToSurface(surfaceId, {
+            type: 'acp.session_update',
+            sessionId: session.acpSessionId,
+            surfaceId,
+            update,
+          });
+        }
+
+        // Migrate legacy history if session is empty (new session) and legacy file exists
+        if (session.history.length === 0) {
+          await this.migrateLegacyHistory(surfaceId, session);
+        }
+      }
+    } catch (err) {
+      console.error(`[acp] ensureSession failed for surface ${surfaceId}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /** Try to load the most recent existing session from the agent for a surface. */
+  private async tryLoadExistingSession(surfaceId: string, cwd?: string): Promise<void> {
+    if (!this.connection) return;
+
+    // Don't steal a session already assigned to another surface
+    const usedSessionIds = new Set([...this.sessions.values()].map(s => s.acpSessionId));
+
+    try {
+      const listResult = await this.connection.listSessions({ cwd: cwd || process.cwd() });
+      if (listResult.sessions.length > 0) {
+        const sorted = listResult.sessions.sort((a, b) => {
+          const aTime = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+          const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+          return bTime - aTime;
+        });
+
+        // Find the most recent session not already claimed by another surface
+        const unclaimed = sorted.find(s => !usedSessionIds.has(s.sessionId));
+        if (unclaimed) {
+          try {
+            this.acpToSurface.set(unclaimed.sessionId, surfaceId);
+            this.sessions.set(surfaceId, {
+              acpSessionId: unclaimed.sessionId,
+              history: [],
+              isPrompting: false,
+            });
+            await this.connection.loadSession({
+              sessionId: unclaimed.sessionId,
+              cwd: cwd || process.cwd(),
+              mcpServers: [],
+            });
+            console.log(`[acp] Loaded existing session for surface ${surfaceId}: ${unclaimed.sessionId} (${unclaimed.title ?? 'untitled'})`);
+            return;
+          } catch {
+            // loadSession failed, try resume
+            try {
+              await this.connection.resumeSession({
+                sessionId: unclaimed.sessionId,
+                cwd: cwd || process.cwd(),
+              });
+              console.log(`[acp] Resumed existing session for surface ${surfaceId}: ${unclaimed.sessionId}`);
+              return;
+            } catch {
+              // Both failed, fall through to new session
+              this.sessions.delete(surfaceId);
+              this.acpToSurface.delete(unclaimed.sessionId);
+            }
+          }
+        }
+      }
+    } catch {
+      // listSessions not supported
+    }
+
+    await this.createNewSession(surfaceId, cwd);
+  }
+
+  private async createNewSession(surfaceId: string, cwd?: string): Promise<void> {
+    if (!this.connection) return;
+
+    const result: NewSessionResponse = await this.connection.newSession({
+      cwd: cwd || process.cwd(),
+      mcpServers: [],
+    });
+
+    const surfaceSession: SurfaceSession = {
+      acpSessionId: result.sessionId,
+      history: [],
+      isPrompting: false,
+    };
+    this.sessions.set(surfaceId, surfaceSession);
+    this.acpToSurface.set(result.sessionId, surfaceId);
+    console.log(`[acp] New session for surface ${surfaceId}: ${result.sessionId}`);
+  }
+
+  /** Resend ACP state to newly connected clients. */
   resendState(): void {
-    if (this.agentStatus === 'starting' && !this.acpSessionId) return;
+    if (this.agentStatus === 'starting') return;
     this.sendStatus(this.agentStatus);
-    if (this.acpSessionId) {
-      this.sendToWeb({
+
+    // Resend all surface sessions
+    for (const [surfaceId, session] of this.sessions) {
+      this.sender.sendToSurface(surfaceId, {
         type: 'acp.session.created',
-        sessionId: this.acpSessionId,
-        capabilities: {},
+        sessionId: session.acpSessionId,
+        surfaceId,
+        capabilities: this.agentCapabilities,
       });
-      // Replay session history so new clients see the conversation
-      for (const update of this.sessionHistory) {
-        this.sendToWeb({
+      for (const update of session.history) {
+        this.sender.sendToSurface(surfaceId, {
           type: 'acp.session_update',
-          sessionId: this.acpSessionId,
+          sessionId: session.acpSessionId,
+          surfaceId,
           update,
         });
       }
@@ -148,47 +305,95 @@ export class AcpManager {
   }
 
   private async handleSessionUpdate(params: SessionNotification): Promise<void> {
-    if (!this.acpSessionId) return;
-    this.sessionHistory.push(params.update);
-    this.persistHistory();
-    this.sendToWeb({
+    const surfaceId = this.acpToSurface.get(params.sessionId);
+    if (!surfaceId) {
+      console.log(`[acp] sessionUpdate for unknown session ${params.sessionId}, dropping`);
+      return;
+    }
+
+    const session = this.sessions.get(surfaceId);
+    if (!session) return;
+
+    session.history.push(params.update);
+    this.persistSurfaceHistory(surfaceId);
+
+    this.sender.sendToSurface(surfaceId, {
       type: 'acp.session_update',
-      sessionId: this.acpSessionId,
+      sessionId: params.sessionId,
+      surfaceId,
       update: params.update,
     });
   }
 
-  private persistHistory(): void {
+  private persistSurfaceHistory(surfaceId: string): void {
+    const session = this.sessions.get(surfaceId);
+    if (!session) return;
+
     mkdir(HISTORY_DIR, { recursive: true }).then(() => {
-      writeFile(HISTORY_FILE, JSON.stringify({ sessionId: this.acpSessionId, history: this.sessionHistory }), 'utf-8').catch(() => {});
+      writeFile(
+        join(HISTORY_DIR, `${surfaceId}.json`),
+        JSON.stringify({ sessionId: session.acpSessionId, history: session.history }),
+        'utf-8',
+      ).catch(() => {});
     }).catch(() => {});
   }
 
-  private async loadPersistedHistory(): Promise<void> {
+  /** Migrate legacy single-session history to first surface that requests a session. */
+  private async migrateLegacyHistory(surfaceId: string, session: SurfaceSession): Promise<void> {
     try {
-      const data = await readFile(HISTORY_FILE, 'utf-8');
+      const data = await readFile(LEGACY_HISTORY_FILE, 'utf-8');
       const parsed = JSON.parse(data);
-      if (parsed.history && Array.isArray(parsed.history)) {
-        this.sessionHistory = parsed.history;
-        console.log(`[acp] Loaded ${parsed.history.length} history entries from disk`);
+      if (!parsed.history || !Array.isArray(parsed.history) || parsed.history.length === 0) return;
+
+      console.log(`[acp] Migrating ${parsed.history.length} legacy history entries to surface ${surfaceId}`);
+      session.history = parsed.history;
+
+      // Replay to web client
+      for (const update of session.history) {
+        this.sender.sendToSurface(surfaceId, {
+          type: 'acp.session_update',
+          sessionId: session.acpSessionId,
+          surfaceId,
+          update,
+        });
+      }
+
+      this.persistSurfaceHistory(surfaceId);
+
+      // Rename legacy file so it's only used once
+      await rename(LEGACY_HISTORY_FILE, LEGACY_HISTORY_FILE + '.migrated');
+    } catch {
+      // No legacy file or parse error — that's fine
+    }
+  }
+
+  private async loadSurfaceHistory(surfaceId: string): Promise<{ sessionId: string; history: SessionUpdate[] } | null> {
+    try {
+      const data = await readFile(join(HISTORY_DIR, `${surfaceId}.json`), 'utf-8');
+      const parsed = JSON.parse(data);
+      if (parsed.sessionId && Array.isArray(parsed.history)) {
+        return { sessionId: parsed.sessionId, history: parsed.history };
       }
     } catch {
-      // No persisted history yet
+      // No persisted history for this surface
     }
+    return null;
   }
 
   private handleRequestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
     return new Promise((resolve) => {
-      if (!this.acpSessionId) {
+      const surfaceId = this.acpToSurface.get(params.sessionId);
+      if (!surfaceId) {
         resolve({ outcome: { outcome: 'cancelled' } });
         return;
       }
 
       const requestId = params.toolCall.toolCallId;
 
-      this.sendToWeb({
+      this.sender.sendToSurface(surfaceId, {
         type: 'acp.permission_request',
-        sessionId: this.acpSessionId,
+        sessionId: params.sessionId,
+        surfaceId,
         requestId,
         toolName: params.toolCall.title ?? 'Unknown tool',
         toolCallId: params.toolCall.toolCallId,
@@ -200,7 +405,7 @@ export class AcpManager {
         resolve({ outcome: { outcome: 'cancelled' } });
       }, PERMISSION_TIMEOUT_MS);
 
-      this.pendingPermissions.set(requestId, { resolve, timer });
+      this.pendingPermissions.set(requestId, { resolve, timer, surfaceId });
     });
   }
 
@@ -222,37 +427,44 @@ export class AcpManager {
     }
   }
 
-  async handlePrompt(text: string): Promise<void> {
-    if (!this.connection || !this.acpSessionId) {
-      console.error('[acp] Cannot prompt: no active session');
-      return;
-    }
-    if (this.isPrompting) {
-      console.warn('[acp] Prompt already in progress, ignoring');
-      return;
-    }
+  async handlePrompt(text: string, surfaceId: string): Promise<void> {
+    console.log(`[acp] handlePrompt: surface=${surfaceId}, text="${text.slice(0, 50)}..."`);
+    await this.ensureSession(surfaceId);
 
-    this.isPrompting = true;
+    const session = this.sessions.get(surfaceId);
+    if (!this.connection || !session) {
+      console.error('[acp] Cannot prompt: no active session for surface');
+      return;
+    }
+    if (session.isPrompting) {
+      console.warn('[acp] Prompt already in progress for this surface, ignoring');
+      return;
+    }
+    console.log(`[acp] Sending prompt to session ${session.acpSessionId}`);
+
+    session.isPrompting = true;
     try {
       const result: PromptResponse = await this.connection.prompt({
-        sessionId: this.acpSessionId,
+        sessionId: session.acpSessionId,
         prompt: [{ type: 'text', text }],
       });
 
-      this.sendToWeb({
+      this.sender.sendToSurface(surfaceId, {
         type: 'acp.session_complete',
-        sessionId: this.acpSessionId,
+        sessionId: session.acpSessionId,
+        surfaceId,
         stopReason: result.stopReason,
       });
     } catch (err) {
       console.error(`[acp] Prompt failed: ${err instanceof Error ? err.message : String(err)}`);
-      this.sendToWeb({
+      this.sender.sendToSurface(surfaceId, {
         type: 'acp.session_complete',
-        sessionId: this.acpSessionId ?? '',
+        sessionId: session.acpSessionId,
+        surfaceId,
         stopReason: 'error',
       });
     } finally {
-      this.isPrompting = false;
+      session.isPrompting = false;
     }
   }
 
@@ -267,87 +479,19 @@ export class AcpManager {
     });
   }
 
-  async handleCancel(): Promise<void> {
-    if (!this.connection || !this.acpSessionId) return;
-    await this.connection.cancel({ sessionId: this.acpSessionId });
+  async handleCancel(surfaceId: string): Promise<void> {
+    const session = this.sessions.get(surfaceId);
+    if (!this.connection || !session) return;
+    await this.connection.cancel({ sessionId: session.acpSessionId });
   }
 
-  async handleNewSession(cwd?: string): Promise<void> {
-    if (!this.connection) return;
-
-    try {
-      const result = await this.connection.newSession({
-        cwd: cwd || process.cwd(),
-        mcpServers: [],
-      });
-      this.acpSessionId = result.sessionId;
-      this.sessionHistory = [];
-
-      this.sendToWeb({
-        type: 'acp.session.created',
-        sessionId: this.acpSessionId,
-        capabilities: {},
-      });
-    } catch (err) {
-      console.error(`[acp] New session failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
+  async handleNewSession(surfaceId: string, cwd?: string): Promise<void> {
+    await this.ensureSession(surfaceId, cwd);
   }
 
-  private async resumeOrCreateSession(): Promise<void> {
-    if (!this.connection) return;
-
-    try {
-      // listSessions may not be supported — check capabilities
-      const listResult = await this.connection.listSessions({
-        cwd: process.cwd(),
-      });
-
-      if (listResult.sessions.length > 0) {
-        // Pick the most recently updated session
-        const sorted = listResult.sessions.sort((a, b) => {
-          const aTime = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
-          const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
-          return bTime - aTime;
-        });
-        const latest = sorted[0];
-
-        try {
-          // Prefer loadSession — replays conversation history through sessionUpdate
-          await this.connection.loadSession({
-            sessionId: latest.sessionId,
-            cwd: process.cwd(),
-            mcpServers: [],
-          });
-          this.acpSessionId = latest.sessionId;
-          console.log(`[acp] Loaded session with history: ${this.acpSessionId} (${latest.title ?? 'untitled'})`);
-          return;
-        } catch {
-          // loadSession not supported, try resumeSession (no history)
-          try {
-            await this.connection.resumeSession({
-              sessionId: latest.sessionId,
-              cwd: process.cwd(),
-            });
-            this.acpSessionId = latest.sessionId;
-            console.log(`[acp] Resumed session (no history): ${this.acpSessionId} (${latest.title ?? 'untitled'})`);
-            return;
-          } catch {
-            // Both failed, fall through to newSession
-          }
-        }
-      }
-    } catch (err) {
-      // listSessions not supported or failed — that's fine, create new
-      console.log(`[acp] Session list unavailable, creating new session`);
-    }
-
-    // Fall back to creating a new session
-    const sessionResult: NewSessionResponse = await this.connection.newSession({
-      cwd: process.cwd(),
-      mcpServers: [],
-    });
-    this.acpSessionId = sessionResult.sessionId;
-    console.log(`[acp] New session created: ${this.acpSessionId}`);
+  /** Check if a session exists for the given surface. */
+  hasSession(surfaceId: string): boolean {
+    return this.sessions.has(surfaceId);
   }
 
   async dispose(): Promise<void> {
@@ -362,6 +506,7 @@ export class AcpManager {
       this.agentProcess = null;
     }
     this.connection = null;
-    this.acpSessionId = null;
+    this.sessions.clear();
+    this.acpToSurface.clear();
   }
 }

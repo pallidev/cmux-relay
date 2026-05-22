@@ -165,8 +165,9 @@ export async function runCloudMode(opts: CliOptions, savedAuth: AuthData | null)
       args: opts.acpArgs,
       name: opts.acpName,
     };
-    acpManager = new AcpManager(acpConfig, (msg) => {
-      cloudBroadcaster.broadcast(msg);
+    acpManager = new AcpManager(acpConfig, {
+      broadcast: (msg) => cloudBroadcaster.broadcast(msg),
+      sendToSurface: (_surfaceId, msg) => cloudBroadcaster.broadcast(msg),
     });
     msgDeps.acpManager = acpManager;
     await acpManager.initialize();

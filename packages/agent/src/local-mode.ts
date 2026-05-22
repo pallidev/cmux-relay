@@ -139,8 +139,9 @@ export async function runLocalMode(opts: CliOptions): Promise<void> {
       args: opts.acpArgs,
       name: opts.acpName,
     };
-    acpManager = new AcpManager(acpConfig, (msg) => {
-      localBroadcaster.broadcast(msg);
+    acpManager = new AcpManager(acpConfig, {
+      broadcast: (msg) => localBroadcaster.broadcast(msg),
+      sendToSurface: (surfaceId, msg) => localBroadcaster.sendToSurface(surfaceId, msg),
     });
     deps.acpManager = acpManager;
     await acpManager.initialize();

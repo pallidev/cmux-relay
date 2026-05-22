@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { initDatabase } from './db.js';
+import { initDatabase, cleanupPushSubscriptions } from './db.js';
 import { SessionRegistry } from './session-registry.js';
 import { PairingRegistry } from './pairing-registry.js';
 import { handleHttpRequest } from './http-handler.js';
@@ -64,4 +64,19 @@ server.listen(PORT, HOST, () => {
   console.log(`[relay] WebSocket endpoints:`);
   console.log(`[relay]   Agent:  ws://${HOST}:${PORT}/ws/agent?token=<apiToken>`);
   console.log(`[relay]   Client: ws://${HOST}:${PORT}/ws/client?session=<sessionId>`);
+
+  // Clean up stale push subscriptions on startup
+  const cleaned = cleanupPushSubscriptions(db);
+  if (cleaned > 0) {
+    console.log(`[relay] Cleaned up ${cleaned} stale push subscription(s)`);
+  }
+
+  // Periodic cleanup every 24 hours
+  const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+  setInterval(() => {
+    const n = cleanupPushSubscriptions(db);
+    if (n > 0) {
+      console.log(`[relay] Periodic cleanup: removed ${n} stale push subscription(s)`);
+    }
+  }, CLEANUP_INTERVAL_MS);
 });

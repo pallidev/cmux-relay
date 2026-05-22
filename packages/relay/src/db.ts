@@ -150,3 +150,42 @@ export function deletePushSubscription(db: Database.Database, userId: string, en
   const result = db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ? AND user_id = ?').run(endpoint, userId);
   return result.changes > 0;
 }
+
+/**
+ * Remove stale push subscriptions.
+ * 1. Delete subscriptions older than `maxAgeDays` (default 30 days).
+ * 2. Per user, keep only `maxPerUser` most recent subscriptions (default 5).
+ * Returns the number of deleted rows.
+ */
+export function cleanupPushSubscriptions(
+  db: Database.Database,
+  maxAgeDays: number = 14,
+  maxPerUser: number = 5,
+): number {
+  let totalDeleted = 0;
+
+  // 1. Delete expired subscriptions
+  const expired = db.prepare(
+    `DELETE FROM push_subscriptions WHERE created_at < datetime('now', ?)`
+  ).run(`-${maxAgeDays} days`);
+  totalDeleted += expired.changes;
+
+  // 2. Per-user cap: keep only the newest `maxPerUser` subscriptions
+  const users = db.prepare('SELECT DISTINCT user_id FROM push_subscriptions').all() as { user_id: string }[];
+  const deleteExtra = db.prepare(`
+    DELETE FROM push_subscriptions
+    WHERE user_id = ? AND id NOT IN (
+      SELECT id FROM push_subscriptions
+      WHERE user_id = ?
+      ORDER BY created_at DESC
+      LIMIT ?
+    )
+  `);
+
+  for (const { user_id } of users) {
+    const result = deleteExtra.run(user_id, user_id, maxPerUser);
+    totalDeleted += result.changes;
+  }
+
+  return totalDeleted;
+}

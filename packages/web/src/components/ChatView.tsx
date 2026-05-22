@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { ChatMessage } from './ChatMessage';
 import { PermissionDialog } from './PermissionDialog';
 import type { AcpChatMessage, AcpPermissionState } from '../hooks/useAcpChat';
@@ -9,6 +9,7 @@ interface ChatViewProps {
   agentStatus: 'starting' | 'ready' | 'error' | null;
   agentName: string;
   permissionRequest: AcpPermissionState | null;
+  canSend: boolean;
   onSendPrompt: (text: string) => void;
   onCancel: () => void;
   onPermissionResponse: (optionId: string) => void;
@@ -20,6 +21,7 @@ export function ChatView({
   agentStatus,
   agentName,
   permissionRequest,
+  canSend,
   onSendPrompt,
   onCancel,
   onPermissionResponse,
@@ -33,7 +35,7 @@ export function ChatView({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || isProcessing) return;
+    if (!input.trim() || isProcessing || !canSend) return;
     onSendPrompt(input.trim());
     setInput('');
   };
@@ -45,6 +47,22 @@ export function ChatView({
     : agentName || 'Agent';
 
   const isReady = agentStatus === 'ready';
+
+  // Compute current activity from active tool calls
+  const activityText = useMemo(() => {
+    if (!isProcessing) return null;
+    const activeTools: string[] = [];
+    for (const msg of messages) {
+      if (!msg.isStreaming) continue;
+      for (const tc of msg.toolCalls) {
+        if (tc.status === 'in_progress') activeTools.push(tc.title);
+        else if (tc.status === 'pending') activeTools.push(tc.title);
+      }
+    }
+    if (activeTools.length === 0) return 'Thinking...';
+    if (activeTools.length === 1) return activeTools[0];
+    return `${activeTools[0]} +${activeTools.length - 1}`;
+  }, [messages, isProcessing]);
 
   return (
     <div style={{
@@ -70,6 +88,25 @@ export function ChatView({
           background: isReady ? '#a6e3a1' : agentStatus === 'error' ? '#f38ba8' : '#f9e2af',
         }} />
         <span style={{ color: '#cdd6f4', fontSize: 12 }}>{statusText}</span>
+        {activityText && (
+          <span style={{
+            color: '#89b4fa',
+            fontSize: 11,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+          }}>
+            <span style={{
+              display: 'inline-block',
+              width: 3,
+              height: 3,
+              borderRadius: '50%',
+              background: '#89b4fa',
+              animation: 'pulse 1.5s ease-in-out infinite',
+            }} />
+            {activityText}
+          </span>
+        )}
         {isProcessing && (
           <button
             onClick={onCancel}
@@ -104,7 +141,7 @@ export function ChatView({
             padding: '40px 20px',
             fontSize: 14,
           }}>
-            {isReady
+            {canSend
               ? `Send a message to start chatting with ${agentName}`
               : agentStatus === 'error'
               ? 'Failed to connect to agent'
@@ -138,8 +175,8 @@ export function ChatView({
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={isReady ? 'Message...' : 'Waiting for agent...'}
-          disabled={!isReady || isProcessing}
+          placeholder={canSend ? 'Message...' : 'Waiting for agent...'}
+          disabled={!canSend || isProcessing}
           style={{
             flex: 1,
             height: 36,
@@ -155,7 +192,7 @@ export function ChatView({
         />
         <button
           type="submit"
-          disabled={!input.trim() || isProcessing || !isReady}
+          disabled={!input.trim() || isProcessing || !canSend}
           style={{
             height: 36,
             minWidth: 44,

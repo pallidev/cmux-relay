@@ -49,18 +49,21 @@ export interface WebRTCIceCandidateMessage {
 
 export interface AcpNewSessionMessage {
   type: 'acp.new_session';
+  surfaceId: string;
   cwd?: string;
 }
 
 export interface AcpPromptMessage {
   type: 'acp.prompt';
   sessionId: string;
+  surfaceId: string;
   text: string;
 }
 
 export interface AcpPermissionResponseMessage {
   type: 'acp.permission_response';
   sessionId: string;
+  surfaceId: string;
   requestId: string;
   outcome: string;
 }
@@ -68,6 +71,7 @@ export interface AcpPermissionResponseMessage {
 export interface AcpCancelMessage {
   type: 'acp.cancel';
   sessionId: string;
+  surfaceId: string;
 }
 
 export type ClientOutgoing =
@@ -161,23 +165,27 @@ export interface AcpAgentStatusMessage {
   status: 'starting' | 'ready' | 'error';
   agentName: string;
   error?: string;
+  surfaceId?: string;
 }
 
 export interface AcpSessionCreatedMessage {
   type: 'acp.session.created';
   sessionId: string;
+  surfaceId: string;
   capabilities: unknown;
 }
 
 export interface AcpSessionUpdateMessage {
   type: 'acp.session_update';
   sessionId: string;
+  surfaceId: string;
   update: unknown;
 }
 
 export interface AcpPermissionRequestMessage {
   type: 'acp.permission_request';
   sessionId: string;
+  surfaceId: string;
   requestId: string;
   toolName: string;
   toolCallId: string;
@@ -187,6 +195,7 @@ export interface AcpPermissionRequestMessage {
 export interface AcpSessionCompleteMessage {
   type: 'acp.session_complete';
   sessionId: string;
+  surfaceId: string;
   stopReason: string;
 }
 

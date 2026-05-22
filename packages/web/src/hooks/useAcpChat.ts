@@ -21,14 +21,49 @@ export interface AcpPermissionState {
   options: { optionId: string; name: string; kind: string }[];
 }
 
-export function useAcpChat(sendViaTransport: (data: string) => void) {
-  const [messages, setMessages] = useState<AcpChatMessage[]>([]);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [permissionRequest, setPermissionRequest] = useState<AcpPermissionState | null>(null);
+interface PerSurfaceState {
+  messages: AcpChatMessage[];
+  isProcessing: boolean;
+  permissionRequest: AcpPermissionState | null;
+  acpSessionId: string | null;
+  currentAssistantId: string | null;
+}
+
+function createEmptySurface(): PerSurfaceState {
+  return {
+    messages: [],
+    isProcessing: false,
+    permissionRequest: null,
+    acpSessionId: null,
+    currentAssistantId: null,
+  };
+}
+
+export function useAcpChat(
+  sendViaTransport: (data: string) => void,
+  activeSurfaceId: string | null,
+) {
+  const [surfaceStates, setSurfaceStates] = useState<Map<string, PerSurfaceState>>(new Map());
   const [agentStatus, setAgentStatus] = useState<'starting' | 'ready' | 'error' | null>(null);
   const [agentName, setAgentName] = useState('');
-  const [acpSessionId, setAcpSessionId] = useState<string | null>(null);
-  const currentAssistantRef = useRef<string | null>(null);
+  const surfaceStatesRef = useRef(surfaceStates);
+
+  // Keep ref in sync
+  surfaceStatesRef.current = surfaceStates;
+
+  const updateSurface = useCallback((surfaceId: string, updater: (prev: PerSurfaceState) => PerSurfaceState) => {
+    setSurfaceStates(prev => {
+      const next = new Map(prev);
+      const current = next.get(surfaceId) || createEmptySurface();
+      next.set(surfaceId, updater(current));
+      return next;
+    });
+  }, []);
+
+  // Fallback: use activeSurfaceId when agent doesn't send surfaceId (backward compat)
+  const resolveSurfaceId = useCallback((msgSurfaceId: string | undefined): string | null => {
+    return msgSurfaceId || activeSurfaceId;
+  }, [activeSurfaceId]);
 
   const handleAcpMessage = useCallback((msg: RelayToClient) => {
     switch (msg.type) {
@@ -37,33 +72,77 @@ export function useAcpChat(sendViaTransport: (data: string) => void) {
         setAgentName(msg.agentName);
         break;
 
-      case 'acp.session.created':
-        setAcpSessionId(msg.sessionId);
-        setAgentStatus('ready');
+      case 'acp.session.created': {
+        const sid = resolveSurfaceId(msg.surfaceId);
+        if (!sid) break;
+        updateSurface(sid, prev => ({
+          ...prev,
+          acpSessionId: msg.sessionId,
+        }));
         break;
+      }
 
       case 'acp.session_update': {
+        const sid = resolveSurfaceId(msg.surfaceId);
+        if (!sid) break;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const update = msg.update as any;
         if (!update) break;
 
         switch (update.sessionUpdate) {
+          case 'user_message_chunk': {
+            const text = update.content?.type === 'text' ? update.content.text : '';
+            if (!text) break;
+
+            updateSurface(sid, prev => {
+              const finalized = prev.messages.map(m =>
+                m.isStreaming ? { ...m, isStreaming: false } : m
+              );
+              return {
+                ...prev,
+                messages: [...finalized, { id: crypto.randomUUID(), role: 'user' as const, content: text, toolCalls: [], isStreaming: false }],
+                currentAssistantId: null,
+              };
+            });
+            break;
+          }
+
           case 'agent_message_chunk': {
             const text = update.content?.type === 'text' ? update.content.text : '';
             if (!text) break;
 
-            setMessages(prev => {
-              const last = prev[prev.length - 1];
+            updateSurface(sid, prev => {
+              const last = prev.messages[prev.messages.length - 1];
               if (last && last.role === 'assistant' && last.isStreaming) {
-                return prev.map((m, i) =>
-                  i === prev.length - 1
-                    ? { ...m, content: m.content + text }
-                    : m
+                const hasCompletedTools = last.toolCalls.some(
+                  tc => tc.status === 'completed' || tc.status === 'failed'
                 );
+                if (hasCompletedTools) {
+                  const finalized = prev.messages.map((m, i) =>
+                    i === prev.messages.length - 1 ? { ...m, isStreaming: false } : m
+                  );
+                  const id = crypto.randomUUID();
+                  return {
+                    ...prev,
+                    messages: [...finalized, { id, role: 'assistant' as const, content: text, toolCalls: [], isStreaming: true }],
+                    currentAssistantId: id,
+                  };
+                }
+                return {
+                  ...prev,
+                  messages: prev.messages.map((m, i) =>
+                    i === prev.messages.length - 1
+                      ? { ...m, content: m.content + text }
+                      : m
+                  ),
+                };
               }
               const id = crypto.randomUUID();
-              currentAssistantRef.current = id;
-              return [...prev, { id, role: 'assistant', content: text, toolCalls: [], isStreaming: true }];
+              return {
+                ...prev,
+                messages: [...prev.messages, { id, role: 'assistant' as const, content: text, toolCalls: [], isStreaming: true }],
+                currentAssistantId: id,
+              };
             });
             break;
           }
@@ -75,18 +154,24 @@ export function useAcpChat(sendViaTransport: (data: string) => void) {
               status: update.status ?? 'pending',
             };
 
-            setMessages(prev => {
-              const last = prev[prev.length - 1];
+            updateSurface(sid, prev => {
+              const last = prev.messages[prev.messages.length - 1];
               if (last && last.role === 'assistant' && last.isStreaming) {
-                return prev.map((m, i) =>
-                  i === prev.length - 1
-                    ? { ...m, toolCalls: [...m.toolCalls, tc] }
-                    : m
-                );
+                return {
+                  ...prev,
+                  messages: prev.messages.map((m, i) =>
+                    i === prev.messages.length - 1
+                      ? { ...m, toolCalls: [...m.toolCalls, tc] }
+                      : m
+                  ),
+                };
               }
               const id = crypto.randomUUID();
-              currentAssistantRef.current = id;
-              return [...prev, { id, role: 'assistant', content: '', toolCalls: [tc], isStreaming: true }];
+              return {
+                ...prev,
+                messages: [...prev.messages, { id, role: 'assistant' as const, content: '', toolCalls: [tc], isStreaming: true }],
+                currentAssistantId: id,
+              };
             });
             break;
           }
@@ -95,93 +180,125 @@ export function useAcpChat(sendViaTransport: (data: string) => void) {
             const tcId = update.toolCallId;
             if (!tcId) break;
 
-            setMessages(prev => prev.map(m => {
-              if (m.role !== 'assistant' || !m.isStreaming) return m;
-              return {
-                ...m,
-                toolCalls: m.toolCalls.map(tc =>
-                  tc.id === tcId
-                    ? { ...tc, status: update.status ?? tc.status, title: update.title ?? tc.title }
-                    : tc
-                ),
-              };
+            updateSurface(sid, prev => ({
+              ...prev,
+              messages: prev.messages.map(m => {
+                if (m.role !== 'assistant' || !m.isStreaming) return m;
+                return {
+                  ...m,
+                  toolCalls: m.toolCalls.map(tc =>
+                    tc.id === tcId
+                      ? { ...tc, status: update.status ?? tc.status, title: update.title ?? tc.title }
+                      : tc
+                  ),
+                };
+              }),
             }));
             break;
           }
 
           case 'agent_thought_chunk':
-            // Ignore thought chunks for now
             break;
         }
         break;
       }
 
       case 'acp.permission_request': {
-        setPermissionRequest({
-          requestId: msg.requestId,
-          toolName: msg.toolName,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          options: (msg.options as any[])?.map((o: any) => ({
-            optionId: o.optionId,
-            name: o.name,
-            kind: o.kind,
-          })) ?? [],
-        });
+        const sid = resolveSurfaceId(msg.surfaceId);
+        if (!sid) break;
+        updateSurface(sid, prev => ({
+          ...prev,
+          permissionRequest: {
+            requestId: msg.requestId,
+            toolName: msg.toolName,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            options: (msg.options as any[])?.map((o: any) => ({
+              optionId: o.optionId,
+              name: o.name,
+              kind: o.kind,
+            })) ?? [],
+          },
+        }));
         break;
       }
 
-      case 'acp.session_complete':
-        setIsProcessing(false);
-        // Finalize streaming messages
-        setMessages(prev => prev.map(m =>
-          m.isStreaming ? { ...m, isStreaming: false } : m
-        ));
+      case 'acp.session_complete': {
+        const sid = resolveSurfaceId(msg.surfaceId);
+        if (!sid) break;
+        updateSurface(sid, prev => ({
+          ...prev,
+          isProcessing: false,
+          messages: prev.messages.map(m =>
+            m.isStreaming ? { ...m, isStreaming: false } : m
+          ),
+        }));
         break;
+      }
     }
-  }, []);
+  }, [updateSurface, resolveSurfaceId]);
+
+  // Get the active surface's state (or empty default)
+  const activeState = (activeSurfaceId && surfaceStates.get(activeSurfaceId)) || createEmptySurface();
 
   const sendPrompt = useCallback((text: string) => {
-    if (!acpSessionId || !text.trim()) return;
-    setIsProcessing(true);
-    setMessages(prev => [
+    if (!activeSurfaceId || !text.trim()) return;
+    const state = surfaceStatesRef.current.get(activeSurfaceId);
+    if (!state?.acpSessionId) return;
+    updateSurface(activeSurfaceId, prev => ({
       ...prev,
-      { id: crypto.randomUUID(), role: 'user', content: text, toolCalls: [], isStreaming: false },
-    ]);
-    currentAssistantRef.current = null;
-    sendViaTransport(JSON.stringify({ type: 'acp.prompt', sessionId: acpSessionId, text }));
-  }, [acpSessionId, sendViaTransport]);
+      isProcessing: true,
+      messages: [
+        ...prev.messages,
+        { id: crypto.randomUUID(), role: 'user' as const, content: text, toolCalls: [], isStreaming: false },
+      ],
+      currentAssistantId: null,
+    }));
+    sendViaTransport(JSON.stringify({ type: 'acp.prompt', sessionId: state.acpSessionId, surfaceId: activeSurfaceId, text }));
+  }, [activeSurfaceId, sendViaTransport, updateSurface]);
 
   const respondToPermission = useCallback((optionId: string) => {
-    if (!permissionRequest || !acpSessionId) return;
+    if (!activeSurfaceId) return;
+    const state = surfaceStatesRef.current.get(activeSurfaceId);
+    if (!state?.permissionRequest || !state.acpSessionId) return;
     sendViaTransport(JSON.stringify({
       type: 'acp.permission_response',
-      sessionId: acpSessionId,
-      requestId: permissionRequest.requestId,
+      sessionId: state.acpSessionId,
+      surfaceId: activeSurfaceId,
+      requestId: state.permissionRequest.requestId,
       outcome: optionId,
     }));
-    setPermissionRequest(null);
-  }, [permissionRequest, acpSessionId, sendViaTransport]);
+    updateSurface(activeSurfaceId, prev => ({ ...prev, permissionRequest: null }));
+  }, [activeSurfaceId, sendViaTransport, updateSurface]);
 
   const cancel = useCallback(() => {
-    if (!acpSessionId) return;
-    sendViaTransport(JSON.stringify({ type: 'acp.cancel', sessionId: acpSessionId }));
-  }, [acpSessionId, sendViaTransport]);
+    if (!activeSurfaceId) return;
+    const state = surfaceStatesRef.current.get(activeSurfaceId);
+    if (!state?.acpSessionId) return;
+    sendViaTransport(JSON.stringify({ type: 'acp.cancel', sessionId: state.acpSessionId, surfaceId: activeSurfaceId }));
+  }, [activeSurfaceId, sendViaTransport]);
 
-  const newSession = useCallback((cwd?: string) => {
-    sendViaTransport(JSON.stringify({ type: 'acp.new_session', cwd }));
+  const ensureSession = useCallback((surfaceId: string, cwd?: string) => {
+    const state = surfaceStatesRef.current.get(surfaceId);
+    if (state?.acpSessionId) return;
+    sendViaTransport(JSON.stringify({ type: 'acp.new_session', surfaceId, cwd }));
   }, [sendViaTransport]);
 
+  const getSurfaceHasSession = useCallback((surfaceId: string): boolean => {
+    return !!surfaceStatesRef.current.get(surfaceId)?.acpSessionId;
+  }, []);
+
   return {
-    messages,
-    isProcessing,
-    permissionRequest,
+    messages: activeState.messages,
+    isProcessing: activeState.isProcessing,
+    permissionRequest: activeState.permissionRequest,
     agentStatus,
     agentName,
-    acpSessionId,
+    acpSessionId: activeState.acpSessionId,
     handleAcpMessage,
     sendPrompt,
     respondToPermission,
     cancel,
-    newSession,
+    ensureSession,
+    getSurfaceHasSession,
   };
 }

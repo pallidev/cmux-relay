@@ -78,6 +78,8 @@ export function useAcpChat(
         updateSurface(sid, prev => ({
           ...prev,
           acpSessionId: msg.sessionId,
+          messages: [],
+          isProcessing: false,
         }));
         break;
       }

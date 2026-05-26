@@ -139,9 +139,7 @@ export class AcpManager {
       const persisted = await this.loadSurfaceHistory(surfaceId);
       if (persisted?.sessionId) {
         try {
-          // Set mapping before loadSession so sessionUpdate callbacks during replay route correctly
           const acpSessionId = persisted.sessionId;
-          this.acpToSurface.set(acpSessionId, surfaceId);
           const surfaceSession: SurfaceSession = {
             acpSessionId,
             history: [],
@@ -154,6 +152,11 @@ export class AcpManager {
             cwd: cwd || process.cwd(),
             mcpServers: [],
           });
+
+          // Set mapping after loadSession to suppress replay callbacks (prevents duplicates)
+          // and restore history from disk as the source of truth
+          this.acpToSurface.set(acpSessionId, surfaceId);
+          surfaceSession.history = persisted.history;
           console.log(`[acp] Loaded session for surface ${surfaceId}: ${acpSessionId} (${persisted.history.length} history entries from disk)`);
         } catch {
           // loadSession failed, try resume
@@ -508,6 +511,24 @@ export class AcpManager {
   }
 
   async handleNewSession(surfaceId: string, cwd?: string): Promise<void> {
+    if (this.sessions.has(surfaceId)) {
+      const session = this.sessions.get(surfaceId)!;
+      this.sender.sendToSurface(surfaceId, {
+        type: 'acp.session.created',
+        sessionId: session.acpSessionId,
+        surfaceId,
+        capabilities: this.agentCapabilities,
+      });
+      for (const update of session.history) {
+        this.sender.sendToSurface(surfaceId, {
+          type: 'acp.session_update',
+          sessionId: session.acpSessionId,
+          surfaceId,
+          update,
+        });
+      }
+      return;
+    }
     await this.ensureSession(surfaceId, cwd);
   }
 

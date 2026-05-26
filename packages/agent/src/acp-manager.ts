@@ -174,6 +174,12 @@ export class AcpManager {
             this.sessions.delete(surfaceId);
             this.acpToSurface.delete(persisted.sessionId);
             await this.tryLoadExistingSession(surfaceId, cwd);
+            // Restore disk history so user can see previous conversation
+            const newSession = this.sessions.get(surfaceId);
+            if (newSession && persisted.history.length > 0) {
+              newSession.history = persisted.history;
+              console.log(`[acp] Restored ${persisted.history.length} history entries from disk for surface ${surfaceId} (new ACP session: ${newSession.acpSessionId})`);
+            }
           }
         }
       } else {

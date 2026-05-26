@@ -71,8 +71,12 @@ export class AcpManager {
 
     try {
       this.agentProcess = spawn(this.config.command, this.config.args, {
-        stdio: ['pipe', 'pipe', 'inherit'],
+        stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env, ...this.config.env },
+      });
+
+      this.agentProcess.stderr?.on('data', (data: Buffer) => {
+        process.stderr.write(data);
       });
 
       this.agentProcess.on('exit', (code) => {
@@ -551,6 +555,7 @@ export class AcpManager {
     this.pendingPermissions.clear();
 
     if (this.agentProcess) {
+      this.agentProcess.stderr?.removeAllListeners();
       this.agentProcess.kill();
       this.agentProcess = null;
     }

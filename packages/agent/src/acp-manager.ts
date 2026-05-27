@@ -30,6 +30,7 @@ interface SurfaceSession {
   acpSessionId: string;
   history: SessionUpdate[];
   isPrompting: boolean;
+  replaying: boolean;
 }
 
 export interface AcpSender {
@@ -144,10 +145,13 @@ export class AcpManager {
       if (persisted?.sessionId) {
         try {
           const acpSessionId = persisted.sessionId;
+          // Set mapping before loadSession so sessionUpdate callbacks during replay route correctly
+          this.acpToSurface.set(acpSessionId, surfaceId);
           const surfaceSession: SurfaceSession = {
             acpSessionId,
             history: [],
             isPrompting: false,
+            replaying: true,
           };
           this.sessions.set(surfaceId, surfaceSession);
 
@@ -156,12 +160,13 @@ export class AcpManager {
             cwd: cwd || process.cwd(),
             mcpServers: [],
           });
+          surfaceSession.replaying = false;
 
-          // Set mapping after loadSession to suppress replay callbacks (prevents duplicates)
-          // and restore history from disk as the source of truth
-          this.acpToSurface.set(acpSessionId, surfaceId);
-          surfaceSession.history = persisted.history;
-          console.log(`[acp] Loaded session for surface ${surfaceId}: ${acpSessionId} (${persisted.history.length} history entries from disk)`);
+          // If loadSession didn't replay history, restore from disk
+          if (surfaceSession.history.length === 0) {
+            surfaceSession.history = persisted.history;
+          }
+          console.log(`[acp] Loaded session for surface ${surfaceId}: ${acpSessionId} (${surfaceSession.history.length} history entries)`);
         } catch {
           // loadSession failed, try resume
           try {
@@ -178,9 +183,9 @@ export class AcpManager {
             this.sessions.delete(surfaceId);
             this.acpToSurface.delete(persisted.sessionId);
             await this.tryLoadExistingSession(surfaceId, cwd);
-            // Restore disk history so user can see previous conversation
+            // Restore disk history only if the new session has no replay data
             const newSession = this.sessions.get(surfaceId);
-            if (newSession && persisted.history.length > 0) {
+            if (newSession && newSession.history.length === 0 && persisted.history.length > 0) {
               newSession.history = persisted.history;
               console.log(`[acp] Restored ${persisted.history.length} history entries from disk for surface ${surfaceId} (new ACP session: ${newSession.acpSessionId})`);
             }
@@ -243,17 +248,20 @@ export class AcpManager {
         if (unclaimed) {
           try {
             this.acpToSurface.set(unclaimed.sessionId, surfaceId);
-            this.sessions.set(surfaceId, {
+            const session: SurfaceSession = {
               acpSessionId: unclaimed.sessionId,
               history: [],
               isPrompting: false,
-            });
+              replaying: true,
+            };
+            this.sessions.set(surfaceId, session);
             await this.connection.loadSession({
               sessionId: unclaimed.sessionId,
               cwd: cwd || process.cwd(),
               mcpServers: [],
             });
-            console.log(`[acp] Loaded existing session for surface ${surfaceId}: ${unclaimed.sessionId} (${unclaimed.title ?? 'untitled'})`);
+            session.replaying = false;
+            console.log(`[acp] Loaded existing session for surface ${surfaceId}: ${unclaimed.sessionId} (${unclaimed.title ?? 'untitled'}, ${session.history.length} history entries)`);
             return;
           } catch {
             // loadSession failed, try resume
@@ -291,6 +299,7 @@ export class AcpManager {
       acpSessionId: result.sessionId,
       history: [],
       isPrompting: false,
+      replaying: false,
     };
     this.sessions.set(surfaceId, surfaceSession);
     this.acpToSurface.set(result.sessionId, surfaceId);
@@ -332,8 +341,11 @@ export class AcpManager {
     if (!session) return;
 
     session.history.push(params.update);
-    this.persistSurfaceHistory(surfaceId);
+    if (!session.replaying) {
+      this.persistSurfaceHistory(surfaceId);
+    }
 
+    if (session.replaying) return;
     this.sender.sendToSurface(surfaceId, {
       type: 'acp.session_update',
       sessionId: params.sessionId,

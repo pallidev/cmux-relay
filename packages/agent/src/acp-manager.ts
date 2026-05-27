@@ -31,6 +31,7 @@ interface SurfaceSession {
   history: SessionUpdate[];
   isPrompting: boolean;
   replaying: boolean;
+  cwd?: string;
 }
 
 export interface AcpSender {
@@ -134,14 +135,47 @@ export class AcpManager {
     });
   }
 
+  /** Extract working directory from terminal prompt text. */
+  private async getSurfaceCwd(surfaceId: string): Promise<string | undefined> {
+    if (!this.cmux) return undefined;
+    try {
+      const text = await this.cmux.readTerminalText(surfaceId);
+      if (!text) return undefined;
+      const lines = text.split('\n').filter(l => l.trim());
+      // Walk backwards to find a line that looks like a shell prompt
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i];
+        // Match common prompt patterns: /path $ or /path % or ~/path $
+        const match = line.match(/(?:^|[`\s])(~?\/[^\s`$%#>]+)(?:\s*[$%#>])\s*$/);
+        if (match) {
+          let path = match[1];
+          if (path.startsWith('~')) {
+            path = path.replace('~', homedir());
+          }
+          return path;
+        }
+      }
+    } catch {
+      // Terminal read failed
+    }
+    return undefined;
+  }
+
   /** Ensure a session exists for the given surface. Creates one lazily if needed. */
   async ensureSession(surfaceId: string, cwd?: string): Promise<void> {
     if (this.sessions.has(surfaceId)) return;
     if (!this.connection) return;
 
     try {
-      // Try to resume a persisted session for this surface
+      // Load persisted history for cwd resolution and session restoration
       const persisted = await this.loadSurfaceHistory(surfaceId);
+
+      // Resolve cwd: explicit param > persisted disk > terminal prompt > process.cwd()
+      if (!cwd) {
+        cwd = persisted?.cwd || await this.getSurfaceCwd(surfaceId) || process.cwd();
+      }
+
+      // Try to resume a persisted session for this surface
       if (persisted?.sessionId) {
         try {
           const acpSessionId = persisted.sessionId;
@@ -200,6 +234,10 @@ export class AcpManager {
       // Notify web client about the new session
       const session = this.sessions.get(surfaceId);
       if (session) {
+        // Persist cwd for future session restoration
+        session.cwd = cwd;
+        this.persistSurfaceHistory(surfaceId);
+
         this.sender.sendToSurface(surfaceId, {
           type: 'acp.session.created',
           sessionId: session.acpSessionId,
@@ -361,7 +399,7 @@ export class AcpManager {
     mkdir(HISTORY_DIR, { recursive: true }).then(() => {
       writeFile(
         join(HISTORY_DIR, `${surfaceId}.json`),
-        JSON.stringify({ sessionId: session.acpSessionId, history: session.history }),
+        JSON.stringify({ sessionId: session.acpSessionId, history: session.history, cwd: session.cwd }),
         'utf-8',
       ).catch(() => {});
     }).catch(() => {});
@@ -396,12 +434,12 @@ export class AcpManager {
     }
   }
 
-  private async loadSurfaceHistory(surfaceId: string): Promise<{ sessionId: string; history: SessionUpdate[] } | null> {
+  private async loadSurfaceHistory(surfaceId: string): Promise<{ sessionId: string; history: SessionUpdate[]; cwd?: string } | null> {
     try {
       const data = await readFile(join(HISTORY_DIR, `${surfaceId}.json`), 'utf-8');
       const parsed = JSON.parse(data);
       if (parsed.sessionId && Array.isArray(parsed.history)) {
-        return { sessionId: parsed.sessionId, history: parsed.history };
+        return { sessionId: parsed.sessionId, history: parsed.history, cwd: parsed.cwd };
       }
     } catch {
       // No persisted history for this surface

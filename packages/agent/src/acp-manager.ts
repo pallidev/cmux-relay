@@ -199,9 +199,9 @@ export class AcpManager {
       // Load persisted history for cwd resolution and session restoration
       const persisted = await this.loadSurfaceHistory(surfaceId);
 
-      // Resolve cwd: explicit param > persisted disk > terminal prompt > process.cwd()
+      // Resolve cwd: explicit param > terminal prompt > persisted disk > process.cwd()
       if (!cwd) {
-        cwd = persisted?.cwd || await this.getSurfaceCwd(surfaceId) || process.cwd();
+        cwd = await this.getSurfaceCwd(surfaceId) || persisted?.cwd || process.cwd();
       }
 
       // Try to resume a persisted session for this surface

@@ -1,5 +1,6 @@
 import { ChildProcess, spawn } from 'node:child_process';
 import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
+import { statSync } from 'node:fs';
 import { Writable, Readable } from 'node:stream';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -141,22 +142,50 @@ export class AcpManager {
     try {
       const text = await this.cmux.readTerminalText(surfaceId);
       if (!text) return undefined;
-      const lines = text.split('\n').filter(l => l.trim());
+
+      // Strip ANSI escape codes
+      const clean = text
+        .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+        .replace(/\x1b\].*?\x07/g, '')
+        .replace(/\x1b\[[^a-zA-Z]*[a-zA-Z]/g, '');
+
+      const lines = clean.split('\n').filter(l => l.trim());
+      console.log(`[acp] getSurfaceCwd: last 3 lines for surface ${surfaceId}:`);
+      for (let i = Math.max(0, lines.length - 3); i < lines.length; i++) {
+        console.log(`[acp]   "${lines[i]}"`);
+      }
+
       // Walk backwards to find a line that looks like a shell prompt
       for (let i = lines.length - 1; i >= 0; i--) {
         const line = lines[i];
-        // Match common prompt patterns: /path $ or /path % or ~/path $
-        const match = line.match(/(?:^|[`\s])(~?\/[^\s`$%#>]+)(?:\s*[$%#>])\s*$/);
-        if (match) {
-          let path = match[1];
-          if (path.startsWith('~')) {
-            path = path.replace('~', homedir());
-          }
+
+        // Pattern 1: Full/tilde path before prompt char (/path $, ~/path %, etc.)
+        const pathMatch = line.match(/(~?\/[^\s\x1b`$%#>"']+)\s*[$%#>]\s*$/);
+        if (pathMatch) {
+          let path = pathMatch[1];
+          if (path.startsWith('~')) path = path.replace('~', homedir());
+          console.log(`[acp] getSurfaceCwd: extracted "${path}" from pattern 1`);
           return path;
         }
+
+        // Pattern 2: user@host dirname %  (zsh default)
+        const zshMatch = line.match(/@\S+\s+(\S+)\s*[%$#]\s*$/);
+        if (zshMatch) {
+          const dir = zshMatch[1];
+          if (!dir.startsWith('(') && !dir.startsWith('-')) {
+            let path = dir.startsWith('~') ? dir.replace('~', homedir()) : join(homedir(), dir);
+            try {
+              if (statSync(path).isDirectory()) {
+                console.log(`[acp] getSurfaceCwd: resolved "${path}" from pattern 2`);
+                return path;
+              }
+            } catch { /* not a valid dir */ }
+          }
+        }
       }
-    } catch {
-      // Terminal read failed
+      console.log(`[acp] getSurfaceCwd: no cwd found in terminal text`);
+    } catch (err) {
+      console.log(`[acp] getSurfaceCwd failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     return undefined;
   }

@@ -136,8 +136,24 @@ export class AcpManager {
     });
   }
 
-  /** Extract working directory from terminal prompt text. */
+  /** Extract working directory for a surface. */
   private async getSurfaceCwd(surfaceId: string): Promise<string | undefined> {
+    // Strategy 1: Parse shell prompt from terminal text
+    const terminalCwd = await this.getTerminalCwd(surfaceId);
+    if (terminalCwd) return terminalCwd;
+
+    // Strategy 2: Find most recently used Claude Code project
+    const claudeCwd = await this.getRecentClaudeProject();
+    if (claudeCwd) {
+      console.log(`[acp] getSurfaceCwd: using recent Claude project "${claudeCwd}"`);
+      return claudeCwd;
+    }
+
+    return undefined;
+  }
+
+  /** Parse cwd from terminal prompt text. */
+  private async getTerminalCwd(surfaceId: string): Promise<string | undefined> {
     if (!this.cmux) return undefined;
     try {
       const text = await this.cmux.readTerminalText(surfaceId);
@@ -150,7 +166,7 @@ export class AcpManager {
         .replace(/\x1b\[[^a-zA-Z]*[a-zA-Z]/g, '');
 
       const lines = clean.split('\n').filter(l => l.trim());
-      console.log(`[acp] getSurfaceCwd: last 3 lines for surface ${surfaceId}:`);
+      console.log(`[acp] getTerminalCwd: last 3 lines for surface ${surfaceId}:`);
       for (let i = Math.max(0, lines.length - 3); i < lines.length; i++) {
         console.log(`[acp]   "${lines[i]}"`);
       }
@@ -164,7 +180,7 @@ export class AcpManager {
         if (pathMatch) {
           let path = pathMatch[1];
           if (path.startsWith('~')) path = path.replace('~', homedir());
-          console.log(`[acp] getSurfaceCwd: extracted "${path}" from pattern 1`);
+          console.log(`[acp] getTerminalCwd: extracted "${path}" from prompt`);
           return path;
         }
 
@@ -176,18 +192,45 @@ export class AcpManager {
             let path = dir.startsWith('~') ? dir.replace('~', homedir()) : join(homedir(), dir);
             try {
               if (statSync(path).isDirectory()) {
-                console.log(`[acp] getSurfaceCwd: resolved "${path}" from pattern 2`);
+                console.log(`[acp] getTerminalCwd: resolved "${path}" from zsh prompt`);
                 return path;
               }
             } catch { /* not a valid dir */ }
           }
         }
       }
-      console.log(`[acp] getSurfaceCwd: no cwd found in terminal text`);
+      console.log(`[acp] getTerminalCwd: no cwd found in terminal text`);
     } catch (err) {
-      console.log(`[acp] getSurfaceCwd failed: ${err instanceof Error ? err.message : String(err)}`);
+      console.log(`[acp] getTerminalCwd failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     return undefined;
+  }
+
+  /** Find the most recently used Claude Code project directory. */
+  private async getRecentClaudeProject(): Promise<string | undefined> {
+    try {
+      const { readdirSync, statSync } = await import('node:fs');
+      const claudeDir = join(homedir(), '.claude', 'projects');
+      const entries = readdirSync(claudeDir, { withFileTypes: true });
+      let latestPath: string | undefined;
+      let latestTime = 0;
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        // Decode path: "-Users-jonginkim-my-project" → "/Users/jonginkim/my-project"
+        const decoded = entry.name.replace(/^-/, '/').replace(/-/g, '/');
+        try {
+          const st = statSync(join(claudeDir, entry.name));
+          if (st.mtimeMs > latestTime) {
+            latestTime = st.mtimeMs;
+            latestPath = decoded;
+          }
+        } catch { /* skip */ }
+      }
+      return latestPath;
+    } catch {
+      return undefined;
+    }
   }
 
   /** Ensure a session exists for the given surface. Creates one lazily if needed. */

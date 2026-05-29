@@ -70,6 +70,13 @@ export class SyncEngine {
           title: s.title || '',
           type: s.type,
           workspaceId: w.id,
+          requestedWorkingDirectory: s.requested_working_directory,
+          resumeBinding: s.resume_binding ? {
+            cwd: s.resume_binding.cwd,
+            kind: s.resume_binding.kind,
+            name: s.resume_binding.name,
+            checkpointId: s.resume_binding.checkpoint_id ?? undefined,
+          } : null,
         }));
         this.store.updateSurfaces(w.id, surfInfos);
         this.broadcaster.broadcast({

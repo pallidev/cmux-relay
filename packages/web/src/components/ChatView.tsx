@@ -13,6 +13,8 @@ interface ChatViewProps {
   onSendPrompt: (text: string) => void;
   onCancel: () => void;
   onPermissionResponse: (optionId: string) => void;
+  projectPath?: string;
+  isClaudeCode?: boolean;
 }
 
 export function ChatView({
@@ -25,6 +27,8 @@ export function ChatView({
   onSendPrompt,
   onCancel,
   onPermissionResponse,
+  projectPath,
+  isClaudeCode,
 }: ChatViewProps) {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -88,6 +92,21 @@ export function ChatView({
           background: isReady ? '#a6e3a1' : agentStatus === 'error' ? '#f38ba8' : '#f9e2af',
         }} />
         <span style={{ color: '#cdd6f4', fontSize: 12 }}>{statusText}</span>
+        {isClaudeCode && (
+          <span style={{
+            background: 'rgba(137, 180, 250, 0.15)',
+            color: '#89b4fa',
+            fontSize: 10,
+            padding: '1px 5px',
+            borderRadius: 3,
+            fontWeight: 600,
+          }}>Claude Code</span>
+        )}
+        {projectPath && (
+          <span style={{ color: '#6c7086', fontSize: 10 }} title={projectPath}>
+            {projectPath.split('/').pop()}
+          </span>
+        )}
         {activityText && (
           <span style={{
             color: '#89b4fa',

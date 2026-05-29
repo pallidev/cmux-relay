@@ -10,6 +10,15 @@ export interface SurfaceInfo {
   title: string;
   type: string; // 'terminal' | 'browser'
   workspaceId: string;
+  /** Working directory the surface was created with */
+  requestedWorkingDirectory?: string;
+  /** Agent binding info (e.g. Claude Code session) */
+  resumeBinding?: {
+    cwd: string;
+    kind: string;       // "claude" etc
+    name: string;       // "Claude Code"
+    checkpointId?: string;
+  } | null;
 }
 
 /** Pixel frame for positioning */

@@ -424,20 +424,22 @@ export function MobileLayout({ relayWsUrl, onDisconnect, onRetry }: { relayWsUrl
             {wsSurfaces.map((s) => {
               const sView = surfaceViews[s.id] || 'terminal';
               const isActive = s.id === activeSurfaceId;
+              const isClaudeCode = s.resumeBinding?.kind === 'claude';
               return (
                 <button
                   key={s.id}
                   className={`mobile-tab ${isActive ? 'active' : ''}`}
                   onClick={() => handleTabClick(s.id)}
-                  style={isActive && hasAcp ? { position: 'relative', paddingRight: 24 } : undefined}
+                  style={isActive && isClaudeCode ? { position: 'relative', paddingRight: 24 } : undefined}
                 >
+                  {isClaudeCode && <span style={{ fontSize: 10, marginRight: 2 }}>✳</span>}
                   {s.title || s.id.slice(0, 8)}
-                  {isActive && hasAcp && (
+                  {isActive && isClaudeCode && (
                     <span
                       onClick={(e) => {
                         e.stopPropagation();
                         const nextView = sView === 'terminal' ? 'chat' : 'terminal';
-                        if (nextView === 'chat') acpEnsureSession(s.id);
+                        if (nextView === 'chat') acpEnsureSession(s.id, s.requestedWorkingDirectory);
                         setSurfaceView(s.id, nextView);
                       }}
                       style={{
@@ -473,6 +475,8 @@ export function MobileLayout({ relayWsUrl, onDisconnect, onRetry }: { relayWsUrl
               onSendPrompt={acpSendPrompt}
               onCancel={acpCancel}
               onPermissionResponse={acpRespondPermission}
+              projectPath={activeSurface?.resumeBinding?.cwd || activeSurface?.requestedWorkingDirectory}
+              isClaudeCode={activeSurface?.resumeBinding?.kind === 'claude'}
             />
           </div>
         ) : (

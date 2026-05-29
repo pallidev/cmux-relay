@@ -1,6 +1,5 @@
 import { ChildProcess, spawn } from 'node:child_process';
 import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
-import { statSync } from 'node:fs';
 import { Writable, Readable } from 'node:stream';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -136,101 +135,30 @@ export class AcpManager {
     });
   }
 
-  /** Extract working directory for a surface. */
+  /** Extract working directory for a surface using cmux API. */
   private async getSurfaceCwd(surfaceId: string): Promise<string | undefined> {
-    // Strategy 1: Parse shell prompt from terminal text
-    const terminalCwd = await this.getTerminalCwd(surfaceId);
-    if (terminalCwd) return terminalCwd;
-
-    // Strategy 2: Find most recently used Claude Code project
-    const claudeCwd = await this.getRecentClaudeProject();
-    if (claudeCwd) {
-      console.log(`[acp] getSurfaceCwd: using recent Claude project "${claudeCwd}"`);
-      return claudeCwd;
-    }
-
-    return undefined;
-  }
-
-  /** Parse cwd from terminal prompt text. */
-  private async getTerminalCwd(surfaceId: string): Promise<string | undefined> {
     if (!this.cmux) return undefined;
     try {
-      const text = await this.cmux.readTerminalText(surfaceId);
-      if (!text) return undefined;
+      // Use the surface's requested_working_directory and resume_binding.cwd from cmux API
+      const surfaces = await this.cmux.listSurfaces();
+      const surface = surfaces.find(s => s.id === surfaceId);
+      if (!surface) return undefined;
 
-      // Strip ANSI escape codes
-      const clean = text
-        .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
-        .replace(/\x1b\].*?\x07/g, '')
-        .replace(/\x1b\[[^a-zA-Z]*[a-zA-Z]/g, '');
-
-      const lines = clean.split('\n').filter(l => l.trim());
-      console.log(`[acp] getTerminalCwd: last 3 lines for surface ${surfaceId}:`);
-      for (let i = Math.max(0, lines.length - 3); i < lines.length; i++) {
-        console.log(`[acp]   "${lines[i]}"`);
+      // resume_binding.cwd is the most accurate (Claude Code sets this)
+      if (surface.resume_binding?.cwd) {
+        console.log(`[acp] getSurfaceCwd: using resume_binding.cwd="${surface.resume_binding.cwd}" for surface ${surfaceId}`);
+        return surface.resume_binding.cwd;
       }
 
-      // Walk backwards to find a line that looks like a shell prompt
-      for (let i = lines.length - 1; i >= 0; i--) {
-        const line = lines[i];
-
-        // Pattern 1: Full/tilde path before prompt char (/path $, ~/path %, etc.)
-        const pathMatch = line.match(/(~?\/[^\s\x1b`$%#>"']+)\s*[$%#>]\s*$/);
-        if (pathMatch) {
-          let path = pathMatch[1];
-          if (path.startsWith('~')) path = path.replace('~', homedir());
-          console.log(`[acp] getTerminalCwd: extracted "${path}" from prompt`);
-          return path;
-        }
-
-        // Pattern 2: user@host dirname %  (zsh default)
-        const zshMatch = line.match(/@\S+\s+(\S+)\s*[%$#]\s*$/);
-        if (zshMatch) {
-          const dir = zshMatch[1];
-          if (!dir.startsWith('(') && !dir.startsWith('-')) {
-            let path = dir.startsWith('~') ? dir.replace('~', homedir()) : join(homedir(), dir);
-            try {
-              if (statSync(path).isDirectory()) {
-                console.log(`[acp] getTerminalCwd: resolved "${path}" from zsh prompt`);
-                return path;
-              }
-            } catch { /* not a valid dir */ }
-          }
-        }
+      // requested_working_directory is set when the surface was created
+      if (surface.requested_working_directory) {
+        console.log(`[acp] getSurfaceCwd: using requested_working_directory="${surface.requested_working_directory}" for surface ${surfaceId}`);
+        return surface.requested_working_directory;
       }
-      console.log(`[acp] getTerminalCwd: no cwd found in terminal text`);
     } catch (err) {
-      console.log(`[acp] getTerminalCwd failed: ${err instanceof Error ? err.message : String(err)}`);
+      console.log(`[acp] getSurfaceCwd failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     return undefined;
-  }
-
-  /** Find the most recently used Claude Code project directory. */
-  private async getRecentClaudeProject(): Promise<string | undefined> {
-    try {
-      const { readdirSync, statSync } = await import('node:fs');
-      const claudeDir = join(homedir(), '.claude', 'projects');
-      const entries = readdirSync(claudeDir, { withFileTypes: true });
-      let latestPath: string | undefined;
-      let latestTime = 0;
-
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        // Decode path: "-Users-jonginkim-my-project" → "/Users/jonginkim/my-project"
-        const decoded = entry.name.replace(/^-/, '/').replace(/-/g, '/');
-        try {
-          const st = statSync(join(claudeDir, entry.name));
-          if (st.mtimeMs > latestTime) {
-            latestTime = st.mtimeMs;
-            latestPath = decoded;
-          }
-        } catch { /* skip */ }
-      }
-      return latestPath;
-    } catch {
-      return undefined;
-    }
   }
 
   /** Ensure a session exists for the given surface. Creates one lazily if needed. */

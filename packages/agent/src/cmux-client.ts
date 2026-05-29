@@ -21,11 +21,36 @@ export interface CmuxWorkspace {
   index: number;
 }
 
+export interface CmuxResumeBinding {
+  cwd: string;
+  command: string;
+  source: string;
+  kind: string;
+  auto_resume: boolean;
+  checkpoint_id: string | null;
+  approval_record_id: string | null;
+  updated_at: number;
+  name: string;
+  environment: Record<string, string>;
+  approval_policy: string;
+}
+
 export interface CmuxSurface {
   id: string;
   title?: string;
   type: string;
   workspace_id: string;
+  requested_working_directory?: string;
+  resume_binding?: CmuxResumeBinding | null;
+  focused?: boolean;
+  selected_in_pane?: boolean;
+  pane_id?: string;
+  index?: number;
+  index_in_pane?: number;
+  initial_command?: string | null;
+  tmux_start_command?: string | null;
+  ref?: string;
+  pane_ref?: string;
 }
 
 export type CmuxConnectionState = 'disconnected' | 'connecting' | 'connected';

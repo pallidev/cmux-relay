@@ -16,32 +16,52 @@ interface TerminalProps {
   cols?: number;
   rows?: number;
   fitRows?: boolean;
+  fontSize?: number;
   onInput: (data: string) => void;
   onResize: (cols: number, rows: number) => void;
+  /** Horizontal swipe on the terminal area (mobile, fitRows only). */
+  onSwipeHorizontal?: (direction: 'left' | 'right') => void;
+  /** Adjust persisted font size by delta (mobile, fitRows only). */
+  onFontSizeChange?: (delta: number) => void;
+  /** Filled with a function that blurs the mobile input (to dismiss keyboard). */
+  blurInputRef?: React.MutableRefObject<() => void>;
 }
 
 const STRIP_ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]/g;
 
-export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: TerminalProps) {
+export function Terminal({
+  surfaceId,
+  cols,
+  rows,
+  fitRows,
+  fontSize,
+  onInput,
+  onResize,
+  onSwipeHorizontal,
+  onFontSizeChange,
+  blurInputRef,
+}: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const onInputRef = useRef(onInput);
   const onResizeRef = useRef(onResize);
+  const onSwipeHorizontalRef = useRef(onSwipeHorizontal);
   const colsRef = useRef(cols);
   const isAtBottomRef = useRef(true);
   colsRef.current = cols;
 
   onInputRef.current = onInput;
   onResizeRef.current = onResize;
+  onSwipeHorizontalRef.current = onSwipeHorizontal;
 
   useEffect(() => {
     if (!containerRef.current) return;
 
     const term = new XTerm({
       cursorBlink: true,
-      fontSize: 13,
+      fontSize: fontSize || 13,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
       scrollback: 10000,
       convertEol: true,
@@ -192,38 +212,106 @@ export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: 
     termRef.current.resize(cols, rows);
   }, [cols, rows, fitRows]);
 
+  // Apply font size changes at runtime and re-fit so cols/rows stay correct
+  useEffect(() => {
+    const t = termRef.current;
+    if (!t) return;
+    const size = fontSize || 13;
+    t.options.fontSize = size;
+    if (fitRows && fitAddonRef.current && containerRef.current && containerRef.current.offsetHeight > 0) {
+      try {
+        const dims = fitAddonRef.current.proposeDimensions();
+        if (dims) {
+          const fixedCols = colsRef.current || dims.cols;
+          t.resize(fixedCols, dims.rows);
+          onResizeRef.current(fixedCols, dims.rows);
+        }
+      } catch {}
+    }
+  }, [fontSize, fitRows]);
+
   const [scrolledUp, setScrolledUp] = useState(false);
-  const [scrollPercent, setScrollPercent] = useState(100);
-  const [scrollPanelOpen, setScrollPanelOpen] = useState(false);
   const [mobileInput, setMobileInput] = useState('');
   const [ctrlActive, setCtrlActive] = useState(false);
+  const [fontPanelOpen, setFontPanelOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Custom touch scroll handler for reliable mobile scrolling
+  // Expose a blur() handle to the parent so it can dismiss the keyboard before transitions
+  if (blurInputRef) {
+    blurInputRef.current = () => inputRef.current?.blur();
+  }
+
+  // Close any open control/font panel when the surface changes (swipe/tab navigation
+  // reuses this Terminal instance, so local panel state would otherwise persist).
+  useEffect(() => {
+    setCtrlActive(false);
+    setFontPanelOpen(false);
+  }, [surfaceId]);
+
+  // Direction-locked touch handler: vertical = terminal scroll, horizontal = workspace swipe.
+  // Locks into one axis after ~10px so diagonal drags don't fight between the two.
   useEffect(() => {
     const container = containerRef.current;
     const t = termRef.current;
     if (!container || !t) return;
 
+    let startX = 0;
+    let startY = 0;
     let lastTouchY = 0;
+    let gestureMode: 'undetermined' | 'vertical' | 'horizontal' = 'undetermined';
+    const THRESHOLD = 10;
+    const SWIPE_THRESHOLD = 60;
 
     const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length !== 1) return;
-      lastTouchY = e.touches[0].clientY;
+      if (e.touches.length !== 1) {
+        // Multi-touch (pinch, accidental second finger) invalidates any in-progress gesture
+        gestureMode = 'undetermined';
+        return;
+      }
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      lastTouchY = startY;
+      gestureMode = 'undetermined';
     };
 
     const onTouchMove = (e: TouchEvent) => {
       if (e.touches.length !== 1) return;
-      const currentY = e.touches[0].clientY;
-      const delta = lastTouchY - currentY;
-      lastTouchY = currentY;
+      const cx = e.touches[0].clientX;
+      const cy = e.touches[0].clientY;
+      const dx = cx - startX;
+      const dy = cy - startY;
+
+      if (gestureMode === 'undetermined') {
+        if (Math.abs(dx) > THRESHOLD || Math.abs(dy) > THRESHOLD) {
+          gestureMode = Math.abs(dx) > Math.abs(dy) ? 'horizontal' : 'vertical';
+        }
+        return;
+      }
+
+      if (gestureMode === 'horizontal') {
+        // Claim the gesture so the browser doesn't also try to scroll/pan
+        if (e.cancelable) e.preventDefault();
+        return;
+      }
+
+      // Vertical: terminal scroll (existing behavior)
+      const delta = lastTouchY - cy;
+      lastTouchY = cy;
       if (Math.abs(delta) > 0) {
         t.scrollLines(Math.round(delta / 10) || (delta > 0 ? 1 : -1));
         e.preventDefault();
       }
     };
 
-    const onTouchEnd = () => {};
+    const onTouchEnd = (e: TouchEvent) => {
+      if (gestureMode === 'horizontal' && e.changedTouches.length === 1) {
+        const dx = e.changedTouches[0].clientX - startX;
+        if (Math.abs(dx) >= SWIPE_THRESHOLD && onSwipeHorizontalRef.current) {
+          onSwipeHorizontalRef.current(dx < 0 ? 'left' : 'right');
+        }
+      }
+      gestureMode = 'undetermined';
+    };
 
     container.addEventListener('touchstart', onTouchStart, { passive: true });
     container.addEventListener('touchmove', onTouchMove, { passive: false });
@@ -246,45 +334,15 @@ export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: 
       const atBottom = maxScroll <= 0 || buffer.viewportY >= maxScroll - 1;
       isAtBottomRef.current = atBottom;
       setScrolledUp(!atBottom);
-      setScrollPercent(maxScroll > 0 ? Math.round((buffer.viewportY / maxScroll) * 100) : 100);
     });
     return () => disp.dispose();
   }, [surfaceId]);
 
-  const scrollUp = () => termRef.current?.scrollLines(-termRef.current.rows);
-  const scrollDown = () => {
-    const t = termRef.current;
-    if (!t) return;
-    const maxScroll = t.buffer.active.length - t.rows;
-    if (t.buffer.active.viewportY + t.rows >= maxScroll) {
-      isAtBottomRef.current = true;
-      t.scrollToBottom();
-    } else {
-      t.scrollLines(t.rows);
-    }
-  };
-  const scrollToTop = () => termRef.current?.scrollToTop();
   const scrollToBottom = () => {
     isAtBottomRef.current = true;
     termRef.current?.scrollToBottom();
     setScrolledUp(false);
   };
-
-  const btnStyle = (size = 32): React.CSSProperties => ({
-    width: size,
-    height: size,
-    borderRadius: '50%',
-    border: 'none',
-    background: 'rgba(137, 180, 250, 0.75)',
-    color: '#1e1e2e',
-    fontSize: 15,
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    lineHeight: 1,
-    padding: 0,
-  });
 
   const sendMobileInput = () => {
     if (!mobileInput.trim()) return;
@@ -322,7 +380,7 @@ export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: 
     <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%' }}>
       <div
         ref={wrapperRef}
-        style={fitRows ? { flex: '1 1 0', minHeight: 0, overflow: 'hidden' } : { height: '100%' }}
+        style={fitRows ? { flex: '1 1 0', minHeight: 0, overflow: 'hidden', position: 'relative' } : { height: '100%' }}
       >
         <div
           ref={containerRef}
@@ -335,6 +393,35 @@ export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: 
             touchAction: 'pan-y',
           }}
         />
+        {/* Scroll-to-bottom — iMessage-style, shown only when scrolled up (mobile) */}
+        {fitRows && scrolledUp && (
+          <button
+            onClick={scrollToBottom}
+            style={{
+              position: 'absolute',
+              right: 10,
+              bottom: 10,
+              width: 36,
+              height: 36,
+              borderRadius: '50%',
+              border: 'none',
+              background: 'rgba(137, 180, 250, 0.85)',
+              color: '#1e1e2e',
+              fontSize: 18,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              lineHeight: 1,
+              padding: 0,
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+              zIndex: 10,
+            }}
+            aria-label="Scroll to bottom"
+          >
+            ↓
+          </button>
+        )}
       </div>
       {/* Mobile input bar for IME support + control keys */}
       {fitRows && (
@@ -360,6 +447,29 @@ export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: 
                 ✕
               </button>
             </div>
+          ) : fontPanelOpen ? (
+            <div style={{
+              display: 'flex',
+              gap: 6,
+              padding: '4px 6px',
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}>
+              <button onClick={() => onFontSizeChange?.(-1)} style={ctrlBtnStyle} aria-label="Decrease font size">A−</button>
+              <span style={{
+                fontSize: 12,
+                color: '#6c7086',
+                minWidth: 28,
+                textAlign: 'center',
+                fontVariantNumeric: 'tabular-nums',
+              }}>
+                {fontSize || 13}
+              </span>
+              <button onClick={() => onFontSizeChange?.(1)} style={ctrlBtnStyle} aria-label="Increase font size">A+</button>
+              <button onClick={() => setFontPanelOpen(false)} style={{ ...ctrlBtnStyle, background: '#f38ba8', color: '#1e1e2e' }}>
+                ✕
+              </button>
+            </div>
           ) : (
             <div style={{
               display: 'flex',
@@ -376,6 +486,7 @@ export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: 
               <button onClick={() => sendKey('\x1b[A')} style={ctrlBtnStyle}>↑</button>
               <button onClick={() => sendKey('\x1b[B')} style={ctrlBtnStyle}>↓</button>
               <button onClick={() => setCtrlActive(true)} style={ctrlBtnStyle}>Ctrl</button>
+              <button onClick={() => setFontPanelOpen(true)} style={ctrlBtnStyle} aria-label="Adjust font size">Aa</button>
             </div>
           )}
           {/* Text input + send */}
@@ -436,51 +547,6 @@ export function Terminal({ surfaceId, cols, rows, fitRows, onInput, onResize }: 
           </div>
         </div>
       )}
-      {/* Scroll controls - collapsible, mobile only */}
-      {fitRows && <div style={{
-        position: 'absolute',
-        right: 6,
-        top: '50%',
-        transform: 'translateY(-50%)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 3,
-        zIndex: 10,
-        alignItems: 'center',
-      }}>
-        {scrollPanelOpen ? (
-          <>
-            <button onClick={scrollToTop} style={btnStyle()} aria-label="Scroll to top">⇈</button>
-            <button onClick={scrollUp} style={btnStyle()} aria-label="Scroll up">↑</button>
-            <div style={{
-              width: 4,
-              height: 20,
-              borderRadius: 2,
-              background: 'rgba(137, 180, 250, 0.3)',
-              position: 'relative',
-              overflow: 'hidden',
-            }}>
-              <div style={{
-                position: 'absolute',
-                left: 0,
-                right: 0,
-                height: `${scrollPercent}%`,
-                minHeight: 4,
-                background: 'rgba(137, 180, 250, 0.8)',
-                borderRadius: 2,
-                transition: 'height 0.1s',
-              }} />
-            </div>
-            <button onClick={scrollDown} style={btnStyle()} aria-label="Scroll down">↓</button>
-            <button onClick={scrollToBottom} style={btnStyle()} aria-label="Scroll to bottom">⇊</button>
-            <button onClick={() => setScrollPanelOpen(false)} style={{ ...btnStyle(), background: 'rgba(69, 71, 90, 0.75)', color: '#cdd6f4' }} aria-label="Close scroll panel">✕</button>
-          </>
-        ) : (
-          <button onClick={() => setScrollPanelOpen(true)} style={btnStyle(28)} aria-label="Open scroll controls">
-            ⇅
-          </button>
-        )}
-      </div>}
     </div>
   );
 }

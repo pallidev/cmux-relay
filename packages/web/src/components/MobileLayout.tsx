@@ -48,20 +48,6 @@ export function MobileLayout({ relayWsUrl, onDisconnect, onRetry }: { relayWsUrl
     }
     return localStorage.getItem('cmux-relay-token') || '';
   });
-  // Persisted terminal font size (10–24px)
-  const [terminalFontSize, setTerminalFontSize] = useState<number>(() => {
-    const saved = parseInt(localStorage.getItem('cmux-relay-font-size') || '', 10);
-    return Number.isFinite(saved) ? saved : 13;
-  });
-  const changeFontSize = (delta: number) => {
-    setTerminalFontSize(prev => {
-      const next = Math.max(10, Math.min(24, prev + delta));
-      localStorage.setItem('cmux-relay-font-size', String(next));
-      return next;
-    });
-  };
-  // Lets MobileLayout dismiss the mobile keyboard before a workspace/surface switch
-  const blurInputRef = useRef<() => void>(() => {});
   const [submitted, setSubmitted] = useState(() => !!localStorage.getItem('cmux-relay-token') || !!relayWsUrl);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(
     () => localStorage.getItem('cmux-relay-last-workspace')
@@ -385,52 +371,29 @@ export function MobileLayout({ relayWsUrl, onDisconnect, onRetry }: { relayWsUrl
   activeSurfaceIdRef.current = activeSurfaceId;
   const currentSurfaceView: SurfaceViewMode = (activeSurfaceId && surfaceViews[activeSurfaceId]) || "terminal";
 
-  // Dismiss the mobile keyboard (if open) before a transition that resizes the
-  // terminal, so the layout doesn't flash. Runs immediately when no input is focused.
-  const dismissKeyboardThen = (fn: () => void) => {
-    const el = document.activeElement;
-    const focused = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
-    blurInputRef.current();
-    if (focused) {
-      setTimeout(fn, 100);
-    } else {
-      fn();
-    }
-  };
-
   // Workspace navigation
   const goWorkspace = (direction: -1 | 1) => {
     const nextIndex = wsIndex + direction;
-    if (nextIndex < 0 || nextIndex >= workspaces.length) return;
-    const nextWs = workspaces[nextIndex];
-    dismissKeyboardThen(() => {
+    if (nextIndex >= 0 && nextIndex < workspaces.length) {
+      const nextWs = workspaces[nextIndex];
       setSelectedWorkspaceId(nextWs.id);
       setSelectedSurfaceId(null);
-    });
-  };
-
-  // Horizontal swipe on the terminal → previous/next workspace
-  const handleSwipeHorizontal = (direction: 'left' | 'right') => {
-    goWorkspace(direction === 'left' ? 1 : -1);
+    }
   };
 
   const clickToast = (n: CmuxNotification, i: number) => {
-    dismissKeyboardThen(() => {
-      if (n.workspaceId) setSelectedWorkspaceId(n.workspaceId);
-      if (n.surfaceId) {
-        setSelectedSurfaceId(n.surfaceId);
-        selectSurface(n.surfaceId);
-      }
-    });
+    if (n.workspaceId) setSelectedWorkspaceId(n.workspaceId);
+    if (n.surfaceId) {
+      setSelectedSurfaceId(n.surfaceId);
+      selectSurface(n.surfaceId);
+    }
     dismissToast(i);
   };
 
   const handleTabClick = (surfaceId: string) => {
-    dismissKeyboardThen(() => {
-      userSelectedRef.current = true;
-      setSelectedSurfaceId(surfaceId);
-      selectSurface(surfaceId);
-    });
+    userSelectedRef.current = true;
+    setSelectedSurfaceId(surfaceId);
+    selectSurface(surfaceId);
   };
 
   return (
@@ -531,12 +494,8 @@ export function MobileLayout({ relayWsUrl, onDisconnect, onRetry }: { relayWsUrl
               <Terminal
                 surfaceId={activeSurface.id}
                 fitRows
-                fontSize={terminalFontSize}
                 onInput={(data) => sendInput(activeSurface.id, data)}
                 onResize={(cols, rows) => sendResize(activeSurface.id, cols, rows)}
-                onSwipeHorizontal={handleSwipeHorizontal}
-                onFontSizeChange={changeFontSize}
-                blurInputRef={blurInputRef}
               />
             ) : (
               <div className="no-pane-hint">
